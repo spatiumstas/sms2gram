@@ -182,7 +182,7 @@ test_message_send() {
     interface_id="$selected_interface" message_id="$nv_value" $PATH_SMSD
     print_message "Сообщение отправлено" "$GREEN"
   else
-    echo "Ошибка: Нет смс для отправки: $selected_interface."
+    print_message "На модеме $selected_interface нет SMS для отправки" "$RED"
   fi
   read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
   main_menu
