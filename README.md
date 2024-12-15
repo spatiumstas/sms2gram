@@ -15,11 +15,11 @@ opkg update && opkg install curl && curl -L -s "https://raw.githubusercontent.co
 2. Создаём своего бота через [BotFather](https://t.me/BotFather)
 3. Копируем полученный `token`
 
-<img src="https://github.com/user-attachments/assets/7834751c-ccdb-4874-8d2c-0ef744ef16d8" alt="" width="900">
+<img src="https://github.com/user-attachments/assets/ca5c31af-b29c-4d5a-b2d9-75ff64ba2c34" alt="" width="900">
 
 4. Вставляем в скрипт
-<img src="https://github.com/user-attachments/assets/c473a27a-a39b-4062-88ba-466863bc86dd" alt="" width="700">
+<img src="https://github.com/user-attachments/assets/f21f5093-2152-481c-ae8d-6a9fccfcfc3f" alt="" width="700">
 
 5. Если всё задано корректно, тестовое сообщение успешно отправится
-<img src="https://github.com/user-attachments/assets/3731fa2e-20d6-4dd2-b451-71b62414c5d4" alt="" width="600">
-<img src="https://github.com/user-attachments/assets/67c8f0a9-4747-4812-b694-fbecd08761e8" alt="" width="350">
+<img src="https://github.com/user-attachments/assets/8ffeb6bc-b8f9-46cc-9dbc-434e5fffd8ee" alt="" width="600">
+<img src="https://github.com/user-attachments/assets/ded26060-6ca1-479a-b8ec-b319dd4033e2" alt="" width="350">
