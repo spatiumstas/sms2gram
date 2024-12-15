@@ -145,7 +145,7 @@ packages_checker() {
 }
 
 test_message_send() {
-  interfaces_list=$(ndmc -c show interface | grep -A 4 -E "UsbLte|UsbQmi" | grep "id:" | awk '{print NR ") " $2}')
+  interfaces_list=$(ndmc -c show interface | grep -A 4 -E "Usb" | grep "id:" | awk '{print NR ") " $2}')
   echo "$interfaces_list"
   echo ""
   read -p "Выберите интерфейс для тестового сообщения: " choices

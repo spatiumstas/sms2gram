@@ -17,6 +17,10 @@ get_sms_data() {
   ndmc -c sms "$INTERFACE_ID" list id "$MESSAGE_ID" 2>/dev/null
 }
 
+get_model() {
+  ndmc -c show version | grep "model" | awk -F": " '{print $2}' 2>/dev/null
+}
+
 parse_sms() {
   local sms_data="$1"
   echo "$sms_data" | awk '
@@ -42,18 +46,25 @@ send_to_telegram() {
   local sender="$1"
   local timestamp="$2"
   local text="$3"
+  local escaped_text
+  local model
+  local message
+  model=$(get_model)
 
   if [ -z "$text" ]; then
     error "Пустое сообщение, отправка невозможна."
     return 1
   fi
 
-  local escaped_text
-  escaped_text=$(echo "$text" | sed 's/"/\\"/g')
+  if [ -z "$model" ]; then
+    model="[Unknown Model]"
+  else
+    model="«$model»"
+  fi
 
-  local message
-  message=$(printf "<b>Сообщение от:</b> %s\n<b>Дата:</b> %s\n\n<b>Текст:</b> %s" \
-    "$sender" "$timestamp" "$escaped_text")
+  escaped_text=$(echo "$text" | sed 's/"/\\"/g')
+  message=$(printf "%s\n\n<b>Сообщение от:</b> %s\n<b>Дата:</b> %s\n\n<b>Текст:</b> %s" \
+    "$model" "$sender" "$timestamp" "$escaped_text")
 
   local payload
   payload=$(printf '{"chat_id":%s,"parse_mode":"HTML","text":"%s"}' "$CHAT_ID" "$message")
@@ -70,7 +81,6 @@ send_to_telegram() {
     return 1
   fi
 }
-
 
 save_pending_message() {
   local sms_json="$1"
@@ -111,7 +121,6 @@ save_pending_message() {
     error "Ошибка обновления очереди сообщений."
   fi
 }
-
 
 send_pending_messages() {
   if [ ! -f "$PENDING_FILE" ]; then
