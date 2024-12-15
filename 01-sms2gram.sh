@@ -18,7 +18,7 @@ get_sms_data() {
 }
 
 get_model() {
-  ndmc -c show version | grep "model" | awk -F": " '{print $2}' 2>/dev/null
+  ndmc -c show version | grep "description" | awk -F": " '{print $2}' 2>/dev/null
 }
 
 parse_sms() {
