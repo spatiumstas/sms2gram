@@ -33,7 +33,6 @@ EOF
   echo "1. Настроить"
   echo "2. Отправить тестовое сообщение"
   echo ""
-  echo "66. Очистить настройки"
   echo "77. Удалить файлы"
   echo "99. Обновить скрипт"
   echo "00. Выход"
@@ -51,8 +50,7 @@ main_menu() {
   else
     case "$choice" in
     1) setup_config ;;
-    2) test_send ;;
-    66) clear_config ;;
+    2) test_message_send ;;
     77) remove_script ;;
     88) script_update "dev" ;;
     99) script_update "main" ;;
@@ -98,7 +96,8 @@ download_file() {
 
 setup_config() {
   if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Конфигурационный файл не найден, создаём его..."
+    print_message "Конфигурационный файл не найден, создаём его..." "$CYAN"
+    mkdir -p $SMS2GRAM_DIR
     cat <<EOL >"$CONFIG_FILE"
 LOG_FILE="/opt/root/sms2gram/log.txt"
 PENDING_FILE="/opt/root/sms2gram/pending_messages.json"
@@ -125,11 +124,12 @@ EOL
 }
 
 remove_script() {
-  echo ""
   echo "Удаляю директорию $SMS2GRAM_DIR..."
-  sleep 1
-  rm -r "$SMS2GRAM_DIR"
-  rm -r "$PATH_SMSD"
+  rm -r "$SMS2GRAM_DIR" 2>/dev/null
+  wait
+  echo "Удаляю файл $PATH_SMSD..."
+  rm -r "$PATH_SMSD" 2>/dev/null
+  wait
 
   print_message "Успешно удалено" "$GREEN"
   read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
@@ -144,7 +144,7 @@ packages_checker() {
   fi
 }
 
-test_send() {
+test_message_send() {
   interfaces_list=$(ndmc -c show interface | grep -A 4 -E "UsbLte|UsbQmi" | grep "id:" | awk '{print NR ") " $2}')
   echo "$interfaces_list"
   echo ""
@@ -180,9 +180,11 @@ test_send() {
   if [ -n "$nv_value" ]; then
     echo ""
     interface_id="$selected_interface" message_id="$nv_value" $PATH_SMSD
+    print_message "Сообщение отправлено" "$GREEN"
   else
     echo "Ошибка: Нет смс для отправки: $selected_interface."
   fi
+  read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
   main_menu
 }
 
