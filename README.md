@@ -1,3 +1,12 @@
+# Как работает сервис
+- При получении сообщения Keenetic запускает хук `/opt/etc/ndm/sms.d/01-sms2gram.sh`
+- Если сообщение не было отправлено (например нет интернета), оно добавляется в очередь `/opt/root/sms2gram/pending_messages.json`. Очередь проверяется при каждой отправке сообщения
+- Для ручной отправки сообщения:
+````shell
+interface_id=UsbQmi0 message_id=nv-1 /opt/etc/ndm/sms.d/01-sms2gram.sh
+````
+Где `interface_id` - интерфейс модема, `message_id` - ID сообщения выбранный из вывода `sms UsbQmi0 list` в CLI или `ndmc -c sms UsbQmi0 list` в терминале
+
 # Установка:
 
 1. Из SSH ввести команду
