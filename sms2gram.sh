@@ -111,7 +111,7 @@ EOL
   read -p "Введите токен бота Telegram: " BOT_TOKEN
   BOT_TOKEN=$(echo "$BOT_TOKEN" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
-  read -p "Введите ID чата Telegram: " CHAT_ID
+  read -p "Введите ID пользователя/чата Telegram: " CHAT_ID
   CHAT_ID=$(echo "$CHAT_ID" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
   sed -i "s|^BOT_TOKEN=.*|BOT_TOKEN=\"$BOT_TOKEN\"|" "$CONFIG_FILE"
