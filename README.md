@@ -21,7 +21,7 @@ opkg update && opkg install curl && curl -L -s "https://raw.githubusercontent.co
 
 4. Проверяем отправкой тестовым сообщением (на модеме должно быть хотя бы одно сообщение)
 <img src="https://github.com/user-attachments/assets/8ffeb6bc-b8f9-46cc-9dbc-434e5fffd8ee" alt="" width="600"> 
-<img src="https://github.com/user-attachments/assets/ded26060-6ca1-479a-b8ec-b319dd4033e2" alt="" width="350">
+<img src="https://github.com/user-attachments/assets/ded26060-6ca1-479a-b8ec-b319dd4033e2" alt="" width="300">
 
 # Работа сервиса
 - При получении сообщения срабатывает хук `/opt/etc/ndm/sms.d/01-sms2gram.sh`
