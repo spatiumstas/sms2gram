@@ -20,12 +20,12 @@ print_menu() {
   printf "\033c"
   printf "${CYAN}"
   cat <<'EOF'
-                       ___
-   _________ ___  ____|__ \ ____ __________ _____ ___
-  / ___/ __ `__ \/ ___/_/ // __ `/ ___/ __ `/ __ `__ \
- (__  ) / / / / (__  ) __// /_/ / /  / /_/ / / / / / /
-/____/_/ /_/ /_/____/____/\__, /_/   \__,_/_/ /_/ /_/
-                         /____/
+                    ____
+  ___ _ __ ___  ___|___ \ __ _ _ __ __ _ _ __ ___
+ / __| '_ ` _ \/ __| __) / _` | '__/ _` | '_ ` _ \
+ \__ \ | | | | \__ \/ __/ (_| | | | (_| | | | | | |
+ |___/_| |_| |_|___/_____\__, |_|  \__,_|_| |_| |_|
+                         |___/
 EOF
   printf "by ${USERNAME}\n"
   printf "${NC}"
@@ -107,7 +107,10 @@ CHAT_ID=""
 
 EOL
   fi
-
+  if [ ! -f "$PATH_SMSD" ]; then
+    curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/main/$SMSD" --output $PATH_SMSD
+    chmod +x $PATH_SMSD
+  fi
   read -p "Введите токен бота Telegram: " BOT_TOKEN
   BOT_TOKEN=$(echo "$BOT_TOKEN" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
@@ -145,6 +148,12 @@ packages_checker() {
 }
 
 test_message_send() {
+  if [ ! -f "$CONFIG_FILE" ]; then
+    print_message "Выполните настройку скрипта" "$RED"
+    read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
+    main_menu
+  fi
+
   interfaces_list=$(ndmc -c show interface | grep -A 4 -E "Usb" | grep "id:" | awk '{print NR ") " $2}')
   echo "$interfaces_list"
   echo ""
@@ -175,7 +184,7 @@ test_message_send() {
   selected_interface=$(echo "$interfaces" | awk '{print $1}')
   echo "Выбран интерфейс: $selected_interface"
 
-  nv_value=$(ndmc -c sms "$selected_interface" list | grep -o "nv-[0-9]\+" | head -n 1)
+  nv_value=$(ndmc -c sms "$selected_interface" list | grep -o "nv-[0-9]\+\|sim-[0-9]\+" | head -n 1)
 
   if [ -n "$nv_value" ]; then
     echo ""
@@ -192,7 +201,7 @@ script_update() {
   BRANCH="$1"
   packages_checker
   curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$MAIN_NAME" --output $TMP_DIR/$MAIN_NAME
-  curl -L -s "https://raw.githubusercontent.com/spatiumstas/$REPO/main/$SMSD" --output $PATH_SMSD
+  curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SMSD" --output $PATH_SMSD
   chmod +x $PATH_SMSD
 
   if [ -f "$TMP_DIR/$MAIN_NAME" ]; then

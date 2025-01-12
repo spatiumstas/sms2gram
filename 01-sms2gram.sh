@@ -61,13 +61,12 @@ send_to_telegram() {
   else
     model="«$model»"
   fi
-
-  escaped_text=$(echo "$text" | sed 's/"/\\"/g')
-  message=$(printf "%s\n\n<b>Сообщение от:</b> %s\n<b>Дата:</b> %s\n\n<b>Текст:</b> %s" \
+  escaped_text=$(echo "$text" | sed 's/"/\\"/g; s/\*/\\*/g; s/_/\\_/g; s/`/\\`/g; s/\[/\\[/g; s/\]/\\]/g; s/\\/\\\\/g')
+  message=$(printf "%s\n\n**Сообщение от:** %s\n**Дата:** %s\n\n**Текст:** %s" \
     "$model" "$sender" "$timestamp" "$escaped_text")
 
   local payload
-  payload=$(printf '{"chat_id":%s,"parse_mode":"HTML","text":"%s"}' "$CHAT_ID" "$message")
+  payload=$(printf '{"chat_id":%s,"parse_mode":"Markdown","text":"%s"}' "$CHAT_ID" "$message")
   local response
   response=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
     -H "Content-Type: application/json" \
