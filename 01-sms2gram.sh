@@ -4,6 +4,8 @@ source /opt/root/sms2gram/config.sh
 
 INTERFACE_ID="$interface_id"
 MESSAGE_ID="$message_id"
+PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
+PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
 
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" | tee -a "$LOG_FILE"
@@ -19,6 +21,23 @@ get_sms_data() {
 
 get_model() {
   ndmc -c show version | grep "description" | awk -F": " '{print $2}' 2>/dev/null
+}
+
+check_symbolic_link() {
+  if [ ! -f "$PATH_IFIPCHANGED" ]; then
+    ln -s $PATH_SMSD $PATH_IFIPCHANGED
+  fi
+}
+
+clean_log() {
+  local log_file="$1"
+  local max_size=524288
+  local current_size=$(wc -c <"$log_file")
+
+  if [ $current_size -gt $max_size ]; then
+    sed -i '1,100d' "$log_file"
+    log "Лог-файл был обрезан на первые 100 строк."
+  fi
 }
 
 parse_sms() {
@@ -46,11 +65,6 @@ send_to_telegram() {
   local sender="$1"
   local timestamp="$2"
   local text="$3"
-
-  if [ -z "$text" ]; then
-    error "Пустое сообщение."
-    return 1
-  fi
 
   local escaped_text
   escaped_text=$(echo "$text" | sed 's/"/\\"/g; s/\*/\\*/g; s/_/\\_/g; s/`/\\`/g; s/\[/\\[/g; s/\]/\\]/g; s/\\/\\\\/g')
@@ -158,11 +172,18 @@ send_pending_messages() {
 }
 
 main() {
+  clean_log "$LOG_FILE"
+  check_symbolic_link
   log "Запуск скрипта. INTERFACE_ID=$INTERFACE_ID, MESSAGE_ID=$MESSAGE_ID"
-  send_pending_messages
 
-  if [ $# -gt 0 ]; then
-    local CUSTOM_MESSAGE="$1"
+  if [ "$1" == "hook" ]; then
+    send_pending_messages
+    exit 0
+  fi
+
+  send_pending_messages
+  if [ $# -gt 1 ]; then
+    local CUSTOM_MESSAGE="$2"
     if send_to_telegram "" "" "$CUSTOM_MESSAGE"; then
       log "Тестовое сообщение успешно отправлено."
     else
@@ -172,7 +193,7 @@ main() {
   fi
 
   if [ -z "$INTERFACE_ID" ] || [ -z "$MESSAGE_ID" ]; then
-    error "Не получены переменные окружения interface_id или message_id."
+    error "Не получены переменные interface_id или message_id."
     exit 1
   fi
 

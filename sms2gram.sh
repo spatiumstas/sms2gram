@@ -71,13 +71,17 @@ print_message() {
   printf "${color}\n+${border}+\n| ${message} |\n+${border}+\n${NC}\n"
 }
 
+exit_function() {
+  read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
+  main_menu
+}
+
 clear_config() {
   sed -i 's|^BOT_TOKEN=.*|BOT_TOKEN=""|' "$CONFIG_FILE"
   sed -i 's|^CHAT_ID=.*|CHAT_ID=""|' "$CONFIG_FILE"
 
   print_message "Конфигурация очищена в $CONFIG_FILE" "$GREEN"
-  read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
-  main_menu
+  exit_function
 }
 
 download_file() {
@@ -88,8 +92,7 @@ download_file() {
 
   if ! curl -s -f -o "$path" "$url"; then
     print_message "Ошибка при скачивании файла $filename. Возможно, файл не найден" "$RED"
-    read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
-    main_menu
+    exit_function
   fi
 }
 
@@ -121,8 +124,7 @@ EOL
   dos2unix "$CONFIG_FILE"
 
   print_message "Конфигурация сохранена в $CONFIG_FILE" "$GREEN"
-  read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
-  main_menu
+  exit_function
 }
 
 remove_script() {
@@ -134,8 +136,7 @@ remove_script() {
   wait
 
   print_message "Успешно удалено" "$GREEN"
-  read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
-  main_menu
+  exit_function
 }
 
 packages_checker() {
@@ -149,8 +150,7 @@ packages_checker() {
 test_message_send() {
   if [ ! -f "$CONFIG_FILE" ]; then
     print_message "Выполните настройку скрипта" "$RED"
-    read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
-    main_menu
+    exit_function
   fi
 
   interfaces_list=$(ndmc -c show interface | grep -A 4 -E "Usb" | grep "id:" | awk '{print NR ") " $2}')
@@ -159,26 +159,22 @@ test_message_send() {
   read -p "Выберите интерфейс для тестового сообщения: " choices
   echo ""
 
-  if [ -z "$choices" ]; then
-    echo "Ошибка: Вы не выбрали интерфейсы."
-    return
-  fi
-
   interfaces=""
   for choice in $choices; do
     interface=$(echo "$interfaces_list" | awk -v choice="$choice" 'NR == choice {print $2}')
     if [ -n "$interface" ]; then
       interfaces="$interfaces $interface"
     else
-      echo "Ошибка: Интерфейс с номером $choice не найден."
+      print_message "Интерфейс с номером $choice не найден" "$RED"
+      exit_function
     fi
   done
 
   if [ -n "$interfaces" ]; then
     interfaces=$(echo "$interfaces" | sed 's/^[ \t]*//;s/[ \t]*$//')
   else
-    echo "Ошибка: Не выбраны интерфейсы."
-    return
+    print_message "Не выбран интерфейс" "$RED"
+    exit_function
   fi
   selected_interface=$(echo "$interfaces" | awk '{print $1}')
   echo "Выбран интерфейс: $selected_interface"
@@ -188,14 +184,12 @@ test_message_send() {
   if [ -n "$get_message_id" ]; then
     echo ""
     interface_id="$selected_interface" message_id="$get_message_id" $PATH_SMSD
-    print_message "Сообщение отправлено" "$GREEN"
   else
     print_message "На модеме $selected_interface нет SMS для отправки. Отправляю тестовое" "$CYAN"
-    $PATH_SMSD "Тестовое сообщение от SMS2GRAM"
-    echo ""
+    $PATH_SMSD "" "Тестовое сообщение от SMS2GRAM"
   fi
-  read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
-  main_menu
+  echo ""
+  exit_function
 }
 
 script_update() {
