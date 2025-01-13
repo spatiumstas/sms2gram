@@ -154,6 +154,12 @@ test_message_send() {
   fi
 
   interfaces_list=$(ndmc -c show interface | grep -A 4 -E "Usb" | grep "id:" | awk '{print NR ") " $2}')
+
+  if [ -z "$interfaces_list" ]; then
+    print_message "Не найдено подключённых модемов" "$RED"
+    exit_function
+  fi
+
   echo "$interfaces_list"
   echo ""
   read -p "Выберите интерфейс для тестового сообщения: " choices
