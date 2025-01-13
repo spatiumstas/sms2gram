@@ -65,11 +65,10 @@ main_menu() {
 }
 
 print_message() {
-  local message=$1
-  local color=${2:-$NC}
+  local message="$1"
+  local color="${2:-$NC}"
   local border=$(printf '%0.s-' $(seq 1 $((${#message} + 2))))
   printf "${color}\n+${border}+\n| ${message} |\n+${border}+\n${NC}\n"
-  sleep 1
 }
 
 clear_config() {
@@ -184,14 +183,16 @@ test_message_send() {
   selected_interface=$(echo "$interfaces" | awk '{print $1}')
   echo "Выбран интерфейс: $selected_interface"
 
-  nv_value=$(ndmc -c sms "$selected_interface" list | grep -o "nv-[0-9]\+\|sim-[0-9]\+" | head -n 1)
+  get_message_id=$(ndmc -c sms "$selected_interface" list | grep -o "nv-[0-9]\+\|sim-[0-9]\+" | head -n 1)
 
-  if [ -n "$nv_value" ]; then
+  if [ -n "$get_message_id" ]; then
     echo ""
-    interface_id="$selected_interface" message_id="$nv_value" $PATH_SMSD
+    interface_id="$selected_interface" message_id="$get_message_id" $PATH_SMSD
     print_message "Сообщение отправлено" "$GREEN"
   else
-    print_message "На модеме $selected_interface нет SMS для отправки" "$RED"
+    print_message "На модеме $selected_interface нет SMS для отправки. Отправляю тестовое" "$CYAN"
+    $PATH_SMSD "Тестовое сообщение от SMS2GRAM"
+    echo ""
   fi
   read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
   main_menu
@@ -211,10 +212,10 @@ script_update() {
     ln -sf $OPT_DIR/$MAIN_NAME $OPT_DIR/bin/sms2gram
     if [ "$BRANCH" = "dev" ]; then
       print_message "Скрипт успешно обновлён на $BRANCH ветку..." "$GREEN"
-      sleep 2
+      sleep 1
     else
       print_message "Скрипт успешно обновлён" "$GREEN"
-      sleep 2
+      sleep 1
     fi
     $OPT_DIR/$MAIN_NAME
   else

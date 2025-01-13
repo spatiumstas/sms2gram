@@ -46,27 +46,33 @@ send_to_telegram() {
   local sender="$1"
   local timestamp="$2"
   local text="$3"
-  local escaped_text
-  local model
-  local message
-  model=$(get_model)
 
   if [ -z "$text" ]; then
-    error "Пустое сообщение, отправка невозможна."
+    error "Пустое сообщение."
     return 1
   fi
 
-  if [ -z "$model" ]; then
-    model="[Unknown Model]"
-  else
-    model="«$model»"
-  fi
+  local escaped_text
   escaped_text=$(echo "$text" | sed 's/"/\\"/g; s/\*/\\*/g; s/_/\\_/g; s/`/\\`/g; s/\[/\\[/g; s/\]/\\]/g; s/\\/\\\\/g')
-  message=$(printf "%s\n\n**Сообщение от:** %s\n**Дата:** %s\n\n**Текст:** %s" \
-    "$model" "$sender" "$timestamp" "$escaped_text")
+
+  local message
+  if [ -z "$sender" ] && [ -z "$timestamp" ]; then
+    message="$escaped_text"
+  else
+    local model
+    model=$(get_model)
+    if [ -z "$model" ]; then
+      model="[Unknown Model]"
+    else
+      model="«$model»"
+    fi
+    message=$(printf "%s\n\n**Сообщение от:** %s\n**Дата:** %s\n\n**Текст:** %s" \
+      "$model" "$sender" "$timestamp" "$escaped_text")
+  fi
 
   local payload
   payload=$(printf '{"chat_id":%s,"parse_mode":"Markdown","text":"%s"}' "$CHAT_ID" "$message")
+
   local response
   response=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
     -H "Content-Type: application/json" \
@@ -128,7 +134,6 @@ send_pending_messages() {
 
   local pending
   pending=$(cat "$PENDING_FILE")
-  local updated_pending="[]"
 
   echo "$pending" | jq -c '.[]' | while read -r message; do
     local sender text timestamp
@@ -139,18 +144,32 @@ send_pending_messages() {
     log "Отправка сохранённого сообщения от $sender ($timestamp)..."
     if send_to_telegram "$sender" "$timestamp" "$text"; then
       log "Сохранённое сообщение отправлено."
+      pending=$(echo "$pending" | jq "del(.[] | select(.sender==\"$sender\" and .text==\"$text\" and .timestamp==\"$timestamp\"))")
+      echo "$pending" >"$PENDING_FILE"
     else
-      updated_pending=$(echo "$updated_pending" | jq ". += [$message]")
+      log "Не удалось отправить сообщение от $sender."
     fi
   done
 
-  echo "$updated_pending" >"$PENDING_FILE"
+  if [ "$(echo "$pending" | jq length)" -eq 0 ]; then
+    echo "[]" >"$PENDING_FILE"
+    log "Очередь сообщений очищена."
+  fi
 }
 
 main() {
   log "Запуск скрипта. INTERFACE_ID=$INTERFACE_ID, MESSAGE_ID=$MESSAGE_ID"
-
   send_pending_messages
+
+  if [ $# -gt 0 ]; then
+    local CUSTOM_MESSAGE="$1"
+    if send_to_telegram "" "" "$CUSTOM_MESSAGE"; then
+      log "Тестовое сообщение успешно отправлено."
+    else
+      log "Не удалось отправить тестовое сообщение."
+    fi
+    exit 0
+  fi
 
   if [ -z "$INTERFACE_ID" ] || [ -z "$MESSAGE_ID" ]; then
     error "Не получены переменные окружения interface_id или message_id."
