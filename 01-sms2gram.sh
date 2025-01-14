@@ -176,9 +176,11 @@ main() {
   check_symbolic_link
   log "Запуск скрипта. INTERFACE_ID=$INTERFACE_ID, MESSAGE_ID=$MESSAGE_ID"
 
-  if [ "$1" == "hook" ]; then
-    send_pending_messages
-    exit 0
+  if [ "$1" = "hook" ]; then
+    if [ -z "$INTERFACE_ID" ] && [ -z "$MESSAGE_ID" ]; then
+      send_pending_messages
+      exit 0
+    fi
   fi
 
   send_pending_messages
