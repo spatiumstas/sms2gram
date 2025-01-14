@@ -7,7 +7,7 @@ MESSAGE_ID="$message_id"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
 REPO="spatiumstas/sms2gram"
-LOCAL_VERSION="v1.1.2"
+SCRIPT_VERSION="v1.1.2"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 
 log() {
@@ -236,7 +236,7 @@ main() {
 }
 
 check_update() {
-  local local_num=$(echo "${LOCAL_VERSION#v}" | awk -F. '{print $1*10000 + $2*100 + $3}')
+  local local_num=$(echo "${SCRIPT_VERSION#v}" | awk -F. '{print $1*10000 + $2*100 + $3}')
   local remote_num=$(echo "${REMOTE_VERSION#v}" | awk -F. '{print $1*10000 + $2*100 + ($3 == "" ? 0 : $3)}')
 
   if [ "$remote_num" -gt "$local_num" ]; then
