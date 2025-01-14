@@ -52,8 +52,8 @@ main_menu() {
     1) setup_config ;;
     2) test_message_send ;;
     77) remove_script ;;
-    88) script_update "dev" ;;
     99) script_update "main" ;;
+    999) script_update "dev" ;;
     00) exit ;;
     *)
       echo "Неверный выбор. Попробуйте снова."
@@ -223,4 +223,8 @@ script_update() {
   fi
 }
 
-main_menu
+if [ "$1" = "script_update" ]; then
+  script_update "main"
+else
+  main_menu
+fi

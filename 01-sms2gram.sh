@@ -6,6 +6,9 @@ INTERFACE_ID="$interface_id"
 MESSAGE_ID="$message_id"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
+REPO="spatiumstas/sms2gram"
+LOCAL_VERSION="v1.1.1"
+REMOTE_VERSION=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" | tee -a "$LOG_FILE"
@@ -26,6 +29,13 @@ get_model() {
 check_symbolic_link() {
   if [ ! -f "$PATH_IFIPCHANGED" ]; then
     ln -s $PATH_SMSD $PATH_IFIPCHANGED
+  fi
+}
+
+internet_checker() {
+  if ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+    error "Нет доступа к интернету. Проверьте подключение."
+    return
   fi
 }
 
@@ -65,8 +75,8 @@ send_to_telegram() {
   local sender="$1"
   local timestamp="$2"
   local text="$3"
-
   local escaped_text
+  internet_checker
   escaped_text=$(echo "$text" | sed 's/"/\\"/g; s/\*/\\*/g; s/_/\\_/g; s/`/\\`/g; s/\[/\\[/g; s/\]/\\]/g; s/\\/\\\\/g')
 
   local message
@@ -179,7 +189,7 @@ main() {
   if [ "$1" = "hook" ]; then
     if [ -z "$INTERFACE_ID" ] && [ -z "$MESSAGE_ID" ]; then
       send_pending_messages
-      exit 0
+      return
     fi
   fi
 
@@ -191,26 +201,26 @@ main() {
     else
       log "Не удалось отправить тестовое сообщение."
     fi
-    exit 0
+    return
   fi
 
   if [ -z "$INTERFACE_ID" ] || [ -z "$MESSAGE_ID" ]; then
     error "Не получены переменные interface_id или message_id."
-    exit 1
+    return
   fi
 
   local sms_data
   sms_data=$(get_sms_data)
   if [ -z "$sms_data" ]; then
     error "Не удалось получить данные SMS с ID $MESSAGE_ID."
-    exit 1
+    return
   fi
 
   local sms_json
   sms_json=$(parse_sms "$sms_data")
   if [ -z "$sms_json" ]; then
     error "Ошибка парсинга SMS."
-    exit 1
+    return
   fi
 
   local sender text timestamp
@@ -225,4 +235,15 @@ main() {
   fi
 }
 
+check_update() {
+  local local_num=$(echo "${LOCAL_VERSION#v}" | awk -F. '{print $1*10000 + $2*100 + $3}')
+  local remote_num=$(echo "${REMOTE_VERSION#v}" | awk -F. '{print $1*10000 + $2*100 + ($3 == "" ? 0 : $3)}')
+
+  if [ "$remote_num" -gt "$local_num" ]; then
+    log "Доступна новая версия: $REMOTE_VERSION. Обновляюсь..."
+    sms2gram "script_update"
+  fi
+}
+
 main "$@"
+check_update
