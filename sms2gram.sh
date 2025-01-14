@@ -210,8 +210,6 @@ post_update() {
   URL=$(url)
   JSON_DATA="{\"script_update\": \"sms2gram_update_$SCRIPT_VERSION\"}"
   curl -X POST -H "Content-Type: application/json" -d "$JSON_DATA" "$URL" -o /dev/null -s
-  echo "$URL"
-  echo "$JSON_DATA"
   main_menu
 }
 
