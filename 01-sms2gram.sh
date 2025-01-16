@@ -6,9 +6,8 @@ INTERFACE_ID="$interface_id"
 MESSAGE_ID="$message_id"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-REPO="spatiumstas/sms2gram"
-SCRIPT_VERSION="v1.1.2"
-REMOTE_VERSION=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
+SCRIPT_VERSION="v1.1.3"
+REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" | tee -a "$LOG_FILE"
@@ -85,17 +84,26 @@ send_to_telegram() {
   else
     local model
     model=$(get_model)
-    if [ -z "$model" ]; then
-      model="[Unknown Model]"
-    else
-      model="«$model»"
-    fi
+    model=${model:-"[Unknown Model]"}
     message=$(printf "%s\n\n**Сообщение от:** %s\n**Дата:** %s\n\n**Текст:** %s" \
       "$model" "$sender" "$timestamp" "$escaped_text")
   fi
 
+  local chat_id="${CHAT_ID%%_*}"
+  local topic_id="${CHAT_ID#*_}"
+
+  if [ "$chat_id" = "$CHAT_ID" ]; then
+    topic_id=""
+  fi
+
   local payload
-  payload=$(printf '{"chat_id":%s,"parse_mode":"Markdown","text":"%s"}' "$CHAT_ID" "$message")
+  if [ -n "$topic_id" ]; then
+    payload=$(printf '{"chat_id":%s,"message_thread_id":%s,"parse_mode":"Markdown","text":"%s"}' \
+      "$chat_id" "$topic_id" "$message")
+  else
+    payload=$(printf '{"chat_id":%s,"parse_mode":"Markdown","text":"%s"}' \
+      "$CHAT_ID" "$message")
+  fi
 
   local response
   response=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
