@@ -7,17 +7,8 @@ SMS_DIR="/opt/etc/ndm/sms.d"
 TMP_DIR="/tmp"
 OPT_DIR="/opt"
 
-url() {
-  PART1="aHR0cHM6Ly9sb2c"
-  PART2="uc3BhdGl1bS5rZWVuZXRpYy5wcm8="
-  PART3="${PART1}${PART2}"
-  URL=$(echo "$PART3" | base64 -d)
-  echo "${URL}"
-}
-
 if ! opkg list-installed | grep -q "^curl" || ! opkg list-installed | grep -q "^jq"; then
   opkg update && opkg install curl jq
-  wait
   echo ""
 fi
 
@@ -31,7 +22,7 @@ curl -L -s "https://raw.githubusercontent.com/spatiumstas/$REPO/main/$SMSD" --ou
 mv "$TMP_DIR/$SMSD" "$SMS_DIR/$SMSD"
 chmod +x $SMS_DIR/$SMSD
 
-URL=$(url)
+URL=$(echo "aHR0cHM6Ly9sb2cuc3BhdGl1bS5rZWVuZXRpYy5wcm8=" | base64 -d)
 JSON_DATA="{\"script_update\": \"sms2gram_install\"}"
 curl -X POST -H "Content-Type: application/json" -d "$JSON_DATA" "$URL" -o /dev/null -s
 $OPT_DIR/$SCRIPT

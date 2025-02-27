@@ -198,16 +198,8 @@ test_message_send() {
   exit_function
 }
 
-url() {
-  PART1="aHR0cHM6Ly9sb2c"
-  PART2="uc3BhdGl1bS5rZWVuZXRpYy5wcm8="
-  PART3="${PART1}${PART2}"
-  URL=$(echo "$PART3" | base64 -d)
-  echo "${URL}"
-}
-
 post_update() {
-  URL=$(url)
+  URL=$(echo "aHR0cHM6Ly9sb2cuc3BhdGl1bS5rZWVuZXRpYy5wcm8=" | base64 -d)
   JSON_DATA="{\"script_update\": \"sms2gram_update_$SCRIPT_VERSION\"}"
   curl -X POST -H "Content-Type: application/json" -d "$JSON_DATA" "$URL" -o /dev/null -s
   main_menu

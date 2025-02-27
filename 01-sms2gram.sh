@@ -6,7 +6,7 @@ INTERFACE_ID="$interface_id"
 MESSAGE_ID="$message_id"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.1.3"
+SCRIPT_VERSION="v1.1.4"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 
 log() {
@@ -43,6 +43,10 @@ clean_log() {
   local max_size=524288
   local current_size=$(wc -c <"$log_file")
 
+  if [ ! -f $log_file ]; then
+    touch $log_file
+  fi
+
   if [ $current_size -gt $max_size ]; then
     sed -i '1,100d' "$log_file"
     log "Лог-файл был обрезан на первые 100 строк."
@@ -51,7 +55,7 @@ clean_log() {
 
 parse_sms() {
   local sms_data="$1"
-  echo "$sms_data" | awk '
+  echo "$sms_data" | sed 's/"/\\"/g; s/\n/ /g' | awk '
         BEGIN { sender=""; timestamp=""; text=""; in_text_section=0 }
         /from:/ { sender=$2 }
         /timestamp:/ { timestamp=substr($0, index($0,$2)) }
@@ -66,7 +70,7 @@ parse_sms() {
         END {
             gsub(/[[:space:]]+/, " ", text)
             gsub(/^[[:space:]]+|[[:space:]]+$/, "", text)
-            printf "{\"sender\":\"%s\", \"timestamp\":\"%s\", \"text\":\"%s\"}\n", sender, timestamp, gensub(/\"/, "\\\"", "g", text)
+            printf "{\"sender\":\"%s\", \"timestamp\":\"%s\", \"text\":\"%s\"}\n", sender, timestamp, text
         }'
 }
 
@@ -185,14 +189,15 @@ send_pending_messages() {
 
   if [ "$(echo "$pending" | jq length)" -eq 0 ]; then
     echo "[]" >"$PENDING_FILE"
-    log "Очередь сообщений очищена."
   fi
 }
 
 main() {
   clean_log "$LOG_FILE"
   check_symbolic_link
-  log "Запуск скрипта. INTERFACE_ID=$INTERFACE_ID, MESSAGE_ID=$MESSAGE_ID"
+  if [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
+    log "Запуск скрипта. INTERFACE_ID=$INTERFACE_ID, MESSAGE_ID=$MESSAGE_ID"
+  fi
 
   if [ "$1" = "hook" ]; then
     if [ -z "$INTERFACE_ID" ] && [ -z "$MESSAGE_ID" ]; then
