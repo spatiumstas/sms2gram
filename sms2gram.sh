@@ -215,18 +215,20 @@ script_update() {
   if [ -f "$TMP_DIR/$SCRIPT" ]; then
     mv "$TMP_DIR/$SCRIPT" "$OPT_DIR/$SCRIPT"
     chmod +x $OPT_DIR/$SCRIPT
-    cd $OPT_DIR/bin
-    ln -sf $OPT_DIR/$SCRIPT $OPT_DIR/bin/sms2gram
+    if [ ! -f "$OPT_DIR/bin/sms2gram" ]; then
+      cd $OPT_DIR/bin
+      ln -s "$OPT_DIR/$SCRIPT" "$OPT_DIR/bin/sms2gram"
+    fi
     if [ "$BRANCH" = "dev" ]; then
       print_message "Скрипт успешно обновлён на $BRANCH ветку..." "$GREEN"
-      sleep 1
     else
       print_message "Скрипт успешно обновлён" "$GREEN"
-      sleep 1
     fi
+    sleep 1
     $OPT_DIR/$SCRIPT post_update
   else
     print_message "Ошибка при скачивании скрипта" "$RED"
+    exit_function
   fi
 }
 

@@ -1,12 +1,12 @@
 #!/bin/sh
 
 source /opt/root/sms2gram/config.sh
-
+export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
 INTERFACE_ID="$interface_id"
 MESSAGE_ID="$message_id"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.1.4"
+SCRIPT_VERSION="v1.1.5"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 
 log() {
