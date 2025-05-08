@@ -6,7 +6,7 @@ INTERFACE_ID="$interface_id"
 MESSAGE_ID="$message_id"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.1.5"
+SCRIPT_VERSION="v1.1.6"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 
 log() {
@@ -80,7 +80,7 @@ send_to_telegram() {
   local text="$3"
   local escaped_text
   internet_checker
-  escaped_text=$(echo "$text" | sed 's/"/ /g; s/\*/\\*/g; s/_/\\_/g; s/`/\\`/g; s/\[/\\[/g; s/\]/\\]/g; s/\\/\\\\/g')
+  escaped_text=$(echo "$text" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
 
   local message
   if [ -z "$sender" ] && [ -z "$timestamp" ]; then
@@ -89,7 +89,7 @@ send_to_telegram() {
     local model
     model=$(get_model)
     model=${model:-"[Unknown Model]"}
-    message=$(printf "%s\n\n**Сообщение от:** %s\n**Дата:** %s\n\n**Текст:** %s" \
+    message=$(printf "%s\n\n<b>Сообщение от:</b> %s\n<b>Дата:</b> %s\n\n<b>Текст:</b> %s" \
       "$model" "$sender" "$timestamp" "$escaped_text")
   fi
 
@@ -102,10 +102,10 @@ send_to_telegram() {
 
   local payload
   if [ -n "$topic_id" ]; then
-    payload=$(printf '{"chat_id":%s,"message_thread_id":%s,"parse_mode":"Markdown","text":"%s"}' \
+    payload=$(printf '{"chat_id":%s,"message_thread_id":%s,"parse_mode":"HTML","text":"%s"}' \
       "$chat_id" "$topic_id" "$message")
   else
-    payload=$(printf '{"chat_id":%s,"parse_mode":"Markdown","text":"%s"}' \
+    payload=$(printf '{"chat_id":%s,"parse_mode":"HTML","text":"%s"}' \
       "$CHAT_ID" "$message")
   fi
 

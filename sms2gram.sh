@@ -153,7 +153,7 @@ test_message_send() {
     exit_function
   fi
 
-  interfaces_list=$(ndmc -c show interface | grep -A 4 -E "Usb" | grep "id:" | awk '{print NR ") " $2}')
+  interfaces_list=$(ndmc -c show interface | grep -A 4 -E "Usb" | grep -v "usbdsl" | grep "id:" | awk '{print NR ") " $2}')
 
   if [ -z "$interfaces_list" ]; then
     print_message "Не найдено подключённых модемов" "$RED"
