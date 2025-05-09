@@ -7,7 +7,7 @@ opkg update && opkg install curl && curl -L -s "https://raw.githubusercontent.co
 
 2. В скрипте выбрать настройку
 
-- Ручной запуска скрипта через `sms2gram` или `/opt/sms2gram.sh`
+- Ручной запуска скрипта через `sms2gram` или `/opt/root/sms2gram/sms2gram.sh`
 
 # Подключение Telegram
 
@@ -23,7 +23,7 @@ opkg update && opkg install curl && curl -L -s "https://raw.githubusercontent.co
 <img src="https://github.com/user-attachments/assets/bdf799a2-3b3b-4fc6-b19a-a0f8a99e1bd7" alt="" width="900">
 
 # Работа сервиса
-- При получении сообщения срабатывает хук `/opt/etc/ndm/sms.d/01-sms2gram.sh`
+- При получении сообщения срабатывает хук `/opt/root/sms2gram/01-sms2gram.sh`
 - Если сообщение не было отправлено (например нет интернета), оно добавляется в очередь `/opt/root/sms2gram/pending_messages.json`. Очередь проверяется при каждой отправке сообщения или смене соединения
 - Просмотр логов `cat /opt/root/sms2gram/log.txt`
 - Для ручной отправки сообщения:
