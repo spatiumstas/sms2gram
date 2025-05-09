@@ -6,7 +6,7 @@ INTERFACE_ID="$interface_id"
 MESSAGE_ID="$message_id"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.1.6"
+SCRIPT_VERSION="v1.1.7"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 
 log() {
@@ -55,23 +55,31 @@ clean_log() {
 
 parse_sms() {
   local sms_data="$1"
-  echo "$sms_data" | sed 's/"/\\"/g; s/\n/ /g' | awk '
-        BEGIN { sender=""; timestamp=""; text=""; in_text_section=0 }
-        /from:/ { sender=$2 }
-        /timestamp:/ { timestamp=substr($0, index($0,$2)) }
+  local sender timestamp text
+
+  sender=$(echo "$sms_data" | awk '/from:/ {print $2}')
+  timestamp=$(echo "$sms_data" | awk '/timestamp:/ {print substr($0, index($0,$2))}')
+  text=$(echo "$sms_data" | awk '
+        BEGIN {text=""; in_text_section=0}
         /text:/ {
             text=substr($0, index($0,$2))
             in_text_section=1
             next
         }
         /^[[:space:]]+/ {
-            if (in_text_section) text=text " " $0
+            if (in_text_section) {
+                text=text " " $0
+            }
+            next
         }
         END {
             gsub(/[[:space:]]+/, " ", text)
             gsub(/^[[:space:]]+|[[:space:]]+$/, "", text)
-            printf "{\"sender\":\"%s\", \"timestamp\":\"%s\", \"text\":\"%s\"}\n", sender, timestamp, text
-        }'
+            print text
+        }')
+
+  jq -n --arg sender "$sender" --arg timestamp "$timestamp" --arg text "$text" \
+    '{"sender": $sender, "timestamp": $timestamp, "text": $text}'
 }
 
 send_to_telegram() {
@@ -139,7 +147,7 @@ save_pending_message() {
     return
   fi
 
-  if [ ! -f "$PENDING_FILE" ]; then
+  if [ ! -f "$PENDING_FILE" ] || [ ! -s "$PENDING_FILE" ]; then
     echo "[]" >"$PENDING_FILE"
   fi
 
@@ -153,7 +161,7 @@ save_pending_message() {
   current_queue=$(cat "$PENDING_FILE")
 
   local updated_queue
-  updated_queue=$(echo "$current_queue" | jq ". + [$sms_json]")
+  updated_queue=$(echo "$current_queue" | jq --argjson msg "$sms_json" '. + [$msg]')
 
   if [ $? -eq 0 ]; then
     echo "$updated_queue" >"$PENDING_FILE"
@@ -164,12 +172,17 @@ save_pending_message() {
 }
 
 send_pending_messages() {
-  if [ ! -f "$PENDING_FILE" ]; then
+  if [ ! -f "$PENDING_FILE" ] || [ ! -s "$PENDING_FILE" ]; then
+    echo "[]" >"$PENDING_FILE"
     return
   fi
 
   local pending
   pending=$(cat "$PENDING_FILE")
+
+  if [ "$(echo "$pending" | jq length)" -eq 0 ]; then
+    return
+  fi
 
   echo "$pending" | jq -c '.[]' | while read -r message; do
     local sender text timestamp
@@ -180,7 +193,8 @@ send_pending_messages() {
     log "Отправка сохранённого сообщения от $sender ($timestamp)..."
     if send_to_telegram "$sender" "$timestamp" "$text"; then
       log "Сохранённое сообщение отправлено."
-      pending=$(echo "$pending" | jq "del(.[] | select(.sender==\"$sender\" and .text==\"$text\" and .timestamp==\"$timestamp\"))")
+      pending=$(echo "$pending" | jq --arg s "$sender" --arg t "$text" --arg ts "$timestamp" \
+        'del(.[] | select(.sender == $s and .text == $t and .timestamp == $ts))')
       echo "$pending" >"$PENDING_FILE"
     else
       log "Не удалось отправить сообщение от $sender."

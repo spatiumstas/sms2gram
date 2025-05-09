@@ -10,12 +10,11 @@ REPO="sms2gram"
 SCRIPT="sms2gram.sh"
 TMP_DIR="/tmp"
 OPT_DIR="/opt"
-
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SMSD="01-sms2gram.sh"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
-CONFIG_FILE="/opt/root/sms2gram/config.sh"
-SCRIPT_VERSION=$(grep -oP 'SCRIPT_VERSION="\K[^"]+' $PATH_SMSD)
+CONFIG_FILE="$SMS2GRAM_DIR/config.sh"
+SCRIPT_VERSION=$(grep -oP 'SCRIPT_VERSION="\K[^"]+' "$SMS2GRAM_DIR/$SMSD")
 
 print_menu() {
   printf "\033c"
@@ -99,19 +98,21 @@ download_file() {
 setup_config() {
   if [ ! -f "$CONFIG_FILE" ]; then
     print_message "Конфигурационный файл не найден, создаём его..." "$CYAN"
-    mkdir -p $SMS2GRAM_DIR
+    mkdir -p "$SMS2GRAM_DIR"
     cat <<EOL >"$CONFIG_FILE"
-LOG_FILE="/opt/root/sms2gram/log.txt"
-PENDING_FILE="/opt/root/sms2gram/pending_messages.json"
+LOG_FILE="$SMS2GRAM_DIR/log.txt"
+PENDING_FILE="$SMS2GRAM_DIR/pending_messages.json"
 
 BOT_TOKEN=""
 CHAT_ID=""
 
 EOL
   fi
-  if [ ! -f "$PATH_SMSD" ]; then
-    curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/main/$SMSD" --output $PATH_SMSD
-    chmod +x $PATH_SMSD
+  if [ ! -f "$SMS2GRAM_DIR/$SMSD" ]; then
+    curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/main/$SMSD" --output "$SMS2GRAM_DIR/$SMSD"
+    chmod +x "$SMS2GRAM_DIR/$SMSD"
+    mkdir -p "$(dirname "$PATH_SMSD")"
+    ln -sf "$SMS2GRAM_DIR/$SMSD" "$PATH_SMSD"
   fi
   read -p "Введите токен бота Telegram: " BOT_TOKEN
   BOT_TOKEN=$(echo "$BOT_TOKEN" | sed 's/^[ \t]*//;s/[ \t]*$//')
@@ -129,11 +130,13 @@ EOL
 
 remove_script() {
   echo "Удаляю директорию $SMS2GRAM_DIR..."
-  rm -r "$SMS2GRAM_DIR" 2>/dev/null
-  wait
+  rm -rf "$SMS2GRAM_DIR" 2>/dev/null
+
   echo "Удаляю файл $PATH_SMSD..."
   rm -r "$PATH_SMSD" 2>/dev/null
-  wait
+
+  echo "Удаляю файл $OPT_DIR/bin/sms2gram..."
+  rm -r "$OPT_DIR/bin/sms2gram" 2>/dev/null
 
   print_message "Успешно удалено" "$GREEN"
   exit_function
@@ -142,7 +145,6 @@ remove_script() {
 packages_checker() {
   if ! opkg list-installed | grep -q "^curl" || ! opkg list-installed | grep -q "^jq"; then
     opkg update && opkg install curl jq
-    wait
     echo ""
   fi
 }
@@ -189,10 +191,10 @@ test_message_send() {
 
   if [ -n "$get_message_id" ]; then
     echo ""
-    interface_id="$selected_interface" message_id="$get_message_id" $PATH_SMSD
+    interface_id="$selected_interface" message_id="$get_message_id" "$SMS2GRAM_DIR/$SMSD"
   else
     print_message "На модеме $selected_interface нет SMS для отправки. Отправляю тестовое" "$CYAN"
-    $PATH_SMSD "" "Тестовое сообщение от SMS2GRAM"
+    "$SMS2GRAM_DIR/$SMSD" "" "Тестовое сообщение от SMS2GRAM"
   fi
   echo ""
   exit_function
@@ -209,15 +211,15 @@ script_update() {
   BRANCH="$1"
   packages_checker
   curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SCRIPT" --output $TMP_DIR/$SCRIPT
-  curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SMSD" --output $PATH_SMSD
-  chmod +x $PATH_SMSD
+  curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SMSD" --output "$SMS2GRAM_DIR/$SMSD"
+  chmod +x "$SMS2GRAM_DIR/$SMSD"
+  ln -sf "$SMS2GRAM_DIR/$SMSD" "$PATH_SMSD"
 
   if [ -f "$TMP_DIR/$SCRIPT" ]; then
-    mv "$TMP_DIR/$SCRIPT" "$OPT_DIR/$SCRIPT"
-    chmod +x $OPT_DIR/$SCRIPT
+    mv "$TMP_DIR/$SCRIPT" "$SMS2GRAM_DIR/$SCRIPT"
+    chmod +x "$SMS2GRAM_DIR/$SCRIPT"
     if [ ! -f "$OPT_DIR/bin/sms2gram" ]; then
-      cd $OPT_DIR/bin
-      ln -s "$OPT_DIR/$SCRIPT" "$OPT_DIR/bin/sms2gram"
+      ln -s "$SMS2GRAM_DIR/$SCRIPT" "$OPT_DIR/bin/sms2gram"
     fi
     if [ "$BRANCH" = "dev" ]; then
       print_message "Скрипт успешно обновлён на $BRANCH ветку..." "$GREEN"
@@ -225,7 +227,7 @@ script_update() {
       print_message "Скрипт успешно обновлён" "$GREEN"
     fi
     sleep 1
-    $OPT_DIR/$SCRIPT post_update
+    "$SMS2GRAM_DIR/$SCRIPT" post_update
   else
     print_message "Ошибка при скачивании скрипта" "$RED"
     exit_function
