@@ -1,5 +1,6 @@
 #!/bin/sh
 
+export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
 RED='\033[1;31m'
 GREEN='\033[1;32m'
 CYAN='\033[0;36m'
@@ -31,6 +32,7 @@ EOF
   printf "${RED}Версия скрипта:\t${NC}%s\n\n" "$SCRIPT_VERSION by ${USERNAME}"
   echo "1. Настроить"
   echo "2. Отправить тестовое сообщение"
+  echo "3. Текущая конфигурация"
   echo ""
   echo "77. Удалить файлы"
   echo "99. Обновить скрипт"
@@ -50,6 +52,7 @@ main_menu() {
     case "$choice" in
     1) setup_config ;;
     2) test_message_send ;;
+    3) show_config ;;
     77) remove_script ;;
     99) script_update "main" ;;
     999) script_update "dev" ;;
@@ -102,6 +105,7 @@ setup_config() {
     cat <<EOL >"$CONFIG_FILE"
 LOG_FILE="$SMS2GRAM_DIR/log.txt"
 PENDING_FILE="$SMS2GRAM_DIR/pending_messages.json"
+MARK_READ_MESSAGE_AFTER_SEND="0"
 
 BOT_TOKEN=""
 CHAT_ID=""
@@ -111,20 +115,37 @@ EOL
   if [ ! -f "$SMS2GRAM_DIR/$SMSD" ]; then
     curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/main/$SMSD" --output "$SMS2GRAM_DIR/$SMSD"
     chmod +x "$SMS2GRAM_DIR/$SMSD"
-    mkdir -p "$(dirname "$PATH_SMSD")"
     ln -sf "$SMS2GRAM_DIR/$SMSD" "$PATH_SMSD"
   fi
   read -p "Введите токен бота Telegram: " BOT_TOKEN
   BOT_TOKEN=$(echo "$BOT_TOKEN" | sed 's/^[ \t]*//;s/[ \t]*$//')
+  if [ -n "$BOT_TOKEN" ]; then
+    sed -i "s|^BOT_TOKEN=.*|BOT_TOKEN=\"$BOT_TOKEN\"|" "$CONFIG_FILE"
+  fi
 
   read -p "Введите ID пользователя/чата Telegram: " CHAT_ID
   CHAT_ID=$(echo "$CHAT_ID" | sed 's/^[ \t]*//;s/[ \t]*$//')
+  if [ -n "$CHAT_ID" ]; then
+    sed -i "s|^CHAT_ID=.*|CHAT_ID=\"$CHAT_ID\"|" "$CONFIG_FILE"
+  fi
 
-  sed -i "s|^BOT_TOKEN=.*|BOT_TOKEN=\"$BOT_TOKEN\"|" "$CONFIG_FILE"
-  sed -i "s|^CHAT_ID=.*|CHAT_ID=\"$CHAT_ID\"|" "$CONFIG_FILE"
+  read -p "Помечать сообщение прочитанным после успешной отправки? (1 - да, 0 - нет): " MARK_READ_MESSAGE_AFTER_SEND
+  MARK_READ_MESSAGE_AFTER_SEND=$(echo "$MARK_READ_MESSAGE_AFTER_SEND" | sed 's/^[ \t]*//;s/[ \t]*$//')
+  if [ -n "$MARK_READ_MESSAGE_AFTER_SEND" ]; then
+    sed -i "/^MARK_READ_MESSAGE_AFTER_SEND=/d" "$CONFIG_FILE"
+    sed -i "3i MARK_READ_MESSAGE_AFTER_SEND=\"$MARK_READ_MESSAGE_AFTER_SEND\"" "$CONFIG_FILE"
+  fi
+
   dos2unix "$CONFIG_FILE"
 
   print_message "Конфигурация сохранена в $CONFIG_FILE" "$GREEN"
+  exit_function
+}
+
+show_config() {
+  printf "${GREEN}"
+  cat "$CONFIG_FILE"
+  printf "${NC}\n"
   exit_function
 }
 

@@ -5,8 +5,9 @@ export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
 INTERFACE_ID="$interface_id"
 MESSAGE_ID="$message_id"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
+SMS2GRAM_DIR="/opt/root/sms2gram/sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.1.7"
+SCRIPT_VERSION="v1.1.8"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 
 log() {
@@ -25,6 +26,10 @@ get_model() {
   ndmc -c show version | grep "description" | awk -F": " '{print $2}' 2>/dev/null
 }
 
+read_sms() {
+  ndmc -c sms "$INTERFACE_ID" read "$MESSAGE_ID"
+}
+
 check_symbolic_link() {
   if [ ! -f "$PATH_IFIPCHANGED" ]; then
     ln -s $PATH_SMSD $PATH_IFIPCHANGED
@@ -32,7 +37,7 @@ check_symbolic_link() {
 }
 
 internet_checker() {
-  if ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
+  if ! ping -c 2 -W 2 8.8.8.8 >/dev/null 2>&1; then
     error "Нет доступа к интернету. Проверьте подключение."
     return
   fi
@@ -124,6 +129,9 @@ send_to_telegram() {
 
   if echo "$response" | grep -q '"ok":true'; then
     log "Сообщение успешно отправлено."
+    if [ "$MARK_READ_MESSAGE_AFTER_SEND" = "1" ]; then
+      read_sms
+    fi
     return 0
   else
     error "Ошибка отправки в Telegram: $response"
@@ -268,7 +276,7 @@ check_update() {
 
   if [ "$remote_num" -gt "$local_num" ]; then
     log "Доступна новая версия: $REMOTE_VERSION. Обновляюсь..."
-    sms2gram "script_update"
+    "$SMS2GRAM_DIR/$SCRIPT" "post_update"
   fi
 }
 
