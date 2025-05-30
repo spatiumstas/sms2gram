@@ -5,7 +5,8 @@ export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
 INTERFACE_ID="$interface_id"
 MESSAGE_ID="$message_id"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
-SMS2GRAM_DIR="/opt/root/sms2gram/sms2gram.sh"
+SMS2GRAM_DIR="/opt/root/sms2gram"
+SCRIPT="sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
 SCRIPT_VERSION="v1.1.8"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
@@ -276,7 +277,7 @@ check_update() {
 
   if [ "$remote_num" -gt "$local_num" ]; then
     log "Доступна новая версия: $REMOTE_VERSION. Обновляюсь..."
-    "$SMS2GRAM_DIR/$SCRIPT" "post_update"
+    "$SMS2GRAM_DIR/$SCRIPT" "script_update"
   fi
 }
 

@@ -255,7 +255,7 @@ script_update() {
       print_message "Скрипт успешно обновлён" "$GREEN"
     fi
     sleep 1
-    "$SMS2GRAM_DIR/$SCRIPT" post_update
+    "$SMS2GRAM_DIR/$SCRIPT" "post_update"
   else
     print_message "Ошибка при скачивании скрипта" "$RED"
     exit_function
