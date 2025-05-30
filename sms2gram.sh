@@ -30,9 +30,10 @@ print_menu() {
 
 EOF
   printf "${RED}Версия скрипта:\t${NC}%s\n\n" "$SCRIPT_VERSION by ${USERNAME}"
-  echo "1. Настроить"
+  echo "1. Настроить конфигурацию"
   echo "2. Отправить тестовое сообщение"
-  echo "3. Текущая конфигурация"
+  echo "3. Вывести конфигурацию"
+  echo "4. Вывести логи"
   echo ""
   echo "77. Удалить файлы"
   echo "99. Обновить скрипт"
@@ -53,6 +54,7 @@ main_menu() {
     1) setup_config ;;
     2) test_message_send ;;
     3) show_config ;;
+    4) show_logs ;;
     77) remove_script ;;
     99) script_update "main" ;;
     999) script_update "dev" ;;
@@ -146,6 +148,11 @@ show_config() {
   printf "${GREEN}"
   cat "$CONFIG_FILE"
   printf "${NC}\n"
+  exit_function
+}
+
+show_logs() {
+  cat "$SMS2GRAM_DIR/log.txt"
   exit_function
 }
 
