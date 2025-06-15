@@ -153,6 +153,7 @@ show_config() {
 
 show_logs() {
   cat "$SMS2GRAM_DIR/log.txt"
+  echo ""
   exit_function
 }
 
