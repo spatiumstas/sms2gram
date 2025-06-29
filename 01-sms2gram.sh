@@ -8,7 +8,7 @@ PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SCRIPT="sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.1.8"
+SCRIPT_VERSION="v1.1.9"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 
 log() {
@@ -27,7 +27,7 @@ get_model() {
   ndmc -c show version | grep "description" | awk -F": " '{print $2}' 2>/dev/null
 }
 
-read_sms() {
+mark_sms_read() {
   ndmc -c sms "$INTERFACE_ID" read "$MESSAGE_ID"
 }
 
@@ -40,7 +40,10 @@ check_symbolic_link() {
 internet_checker() {
   if ! ping -c 2 -W 2 8.8.8.8 >/dev/null 2>&1; then
     error "Нет доступа к интернету. Проверьте подключение."
-    return
+  fi
+
+  if ! ping -c 2 -W 2 api.telegram.org >/dev/null 2>&1; then
+    error "Нет доступа к api.telegram.org"
   fi
 }
 
@@ -93,7 +96,11 @@ send_to_telegram() {
   local timestamp="$2"
   local text="$3"
   local escaped_text
+  local retry_count=0
+  local max_retries=3
+  local retry_delay=5
   internet_checker
+
   escaped_text=$(echo "$text" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
 
   local message
@@ -123,21 +130,29 @@ send_to_telegram() {
       "$CHAT_ID" "$message")
   fi
 
-  local response
-  response=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
-    -H "Content-Type: application/json" \
-    -d "$payload")
+  while [ $retry_count -lt $max_retries ]; do
+    local response
+    response=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+      -H "Content-Type: application/json" \
+      -d "$payload")
 
-  if echo "$response" | grep -q '"ok":true'; then
-    log "Сообщение успешно отправлено."
-    if [ "$MARK_READ_MESSAGE_AFTER_SEND" = "1" ]; then
-      read_sms
+    if echo "$response" | grep -q '"ok":true'; then
+      log "Сообщение успешно отправлено."
+      if [ "$MARK_READ_MESSAGE_AFTER_SEND" = "1" ]; then
+        mark_sms_read
+      fi
+      return 0
+    else
+      error "Ошибка отправки в Telegram: $response"
+      retry_count=$((retry_count + 1))
+      if [ $retry_count -lt $max_retries ]; then
+        log "Повторная попытка отправки через $retry_delay секунд... (попытка $retry_count из $max_retries)"
+        sleep $retry_delay
+      fi
     fi
-    return 0
-  else
-    error "Ошибка отправки в Telegram: $response"
-    return 1
-  fi
+  done
+
+  return 1
 }
 
 save_pending_message() {
