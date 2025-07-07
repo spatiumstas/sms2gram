@@ -8,7 +8,7 @@ PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SCRIPT="sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.1.9"
+SCRIPT_VERSION="v1.1.10"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 
 log() {
@@ -48,16 +48,15 @@ internet_checker() {
 }
 
 clean_log() {
-  local log_file="$1"
   local max_size=524288
 
-  if [ ! -f $log_file ]; then
-    touch $log_file
+  if [ ! -f "$LOG_FILE" ]; then
+    touch "$LOG_FILE"
   fi
 
-  local current_size=$(wc -c <"$log_file")
+  local current_size=$(wc -c <"$LOG_FILE")
   if [ $current_size -gt $max_size ]; then
-    sed -i '1,100d' "$log_file"
+    sed -i '1,100d' "$LOG_FILE"
     log "Лог-файл был обрезан на первые 100 строк."
   fi
 }
@@ -138,7 +137,7 @@ send_to_telegram() {
 
     if echo "$response" | grep -q '"ok":true'; then
       log "Сообщение успешно отправлено."
-      if [ "$MARK_READ_MESSAGE_AFTER_SEND" = "1" ]; then
+      if [ "$MARK_READ_MESSAGE_AFTER_SEND" = "1" ] && [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
         mark_sms_read
       fi
       return 0
@@ -231,7 +230,7 @@ send_pending_messages() {
 }
 
 main() {
-  clean_log "$LOG_FILE"
+  clean_log
   check_symbolic_link
   if [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
     log "Запуск скрипта. INTERFACE_ID=$INTERFACE_ID, MESSAGE_ID=$MESSAGE_ID"
@@ -247,11 +246,7 @@ main() {
   send_pending_messages
   if [ $# -gt 1 ]; then
     local CUSTOM_MESSAGE="$2"
-    if send_to_telegram "" "" "$CUSTOM_MESSAGE"; then
-      log "Тестовое сообщение успешно отправлено."
-    else
-      log "Не удалось отправить тестовое сообщение."
-    fi
+    send_to_telegram "" "" "$CUSTOM_MESSAGE"
     return
   fi
 

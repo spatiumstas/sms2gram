@@ -23,9 +23,10 @@ opkg update && opkg install curl && curl -L -s "https://raw.githubusercontent.co
 <img src="https://github.com/user-attachments/assets/bdf799a2-3b3b-4fc6-b19a-a0f8a99e1bd7" alt="" width="900">
 
 # Работа сервиса
-- При получении сообщения срабатывает хук `/opt/root/sms2gram/01-sms2gram.sh`
+- При получении сообщения срабатывает хук `/opt/root/sms2gram/01-sms2gram.sh`, отправляющий сообщение в Telegram
+- При неудачной отправке сообщения идёт 2 повторных попытки с интервалом 5 секунд
 - Если сообщение не было отправлено (например нет интернета), оно добавляется в очередь `/opt/root/sms2gram/pending_messages.json`. Очередь проверяется при каждой отправке сообщения или смене соединения
-- Просмотр логов `cat /opt/root/sms2gram/log.txt`
+- Просмотр логов `cat /opt/var/log/sms2gram.log`
 - Для ручной отправки сообщения:
 ````shell
 interface_id=UsbQmi0 message_id=nv-1 /opt/etc/ndm/sms.d/01-sms2gram.sh

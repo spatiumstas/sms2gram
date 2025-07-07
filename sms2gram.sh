@@ -105,7 +105,7 @@ setup_config() {
     print_message "Конфигурационный файл не найден, создаём его..." "$CYAN"
     mkdir -p "$SMS2GRAM_DIR"
     cat <<EOL >"$CONFIG_FILE"
-LOG_FILE="$SMS2GRAM_DIR/log.txt"
+LOG_FILE="/opt/var/log/sms2gram.log"
 PENDING_FILE="$SMS2GRAM_DIR/pending_messages.json"
 MARK_READ_MESSAGE_AFTER_SEND="0"
 
@@ -152,7 +152,7 @@ show_config() {
 }
 
 show_logs() {
-  cat "$SMS2GRAM_DIR/log.txt"
+  cat "/opt/var/log/sms2gram.log"
   echo ""
   exit_function
 }
@@ -230,6 +230,11 @@ test_message_send() {
 }
 
 post_update() {
+  if [ -f "$SMS2GRAM_DIR/log.txt" ]; then
+    mv $SMS2GRAM_DIR/log.txt $LOG
+    sed -i 's|^LOG_FILE=.*|LOG_FILE="/opt/var/log/sms2gram.log"|' "$CONFIG_FILE"
+  fi
+  
   URL=$(echo "aHR0cHM6Ly9sb2cuc3BhdGl1bS5rZWVuZXRpYy5wcm8=" | base64 -d)
   JSON_DATA="{\"script_update\": \"sms2gram_update_$SCRIPT_VERSION\"}"
   curl -X POST -H "Content-Type: application/json" -d "$JSON_DATA" "$URL" -o /dev/null -s
