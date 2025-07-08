@@ -12,6 +12,7 @@ SCRIPT="sms2gram.sh"
 TMP_DIR="/tmp"
 OPT_DIR="/opt"
 SMS2GRAM_DIR="/opt/root/sms2gram"
+LOG="/opt/var/log/sms2gram.log"
 SMSD="01-sms2gram.sh"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 CONFIG_FILE="$SMS2GRAM_DIR/config.sh"
@@ -152,7 +153,7 @@ show_config() {
 }
 
 show_logs() {
-  cat "/opt/var/log/sms2gram.log"
+  cat "$LOG"
   echo ""
   exit_function
 }
@@ -234,7 +235,7 @@ post_update() {
     mv $SMS2GRAM_DIR/log.txt $LOG
     sed -i 's|^LOG_FILE=.*|LOG_FILE="/opt/var/log/sms2gram.log"|' "$CONFIG_FILE"
   fi
-  
+
   URL=$(echo "aHR0cHM6Ly9sb2cuc3BhdGl1bS5rZWVuZXRpYy5wcm8=" | base64 -d)
   JSON_DATA="{\"script_update\": \"sms2gram_update_$SCRIPT_VERSION\"}"
   curl -X POST -H "Content-Type: application/json" -d "$JSON_DATA" "$URL" -o /dev/null -s
