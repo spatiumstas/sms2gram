@@ -109,6 +109,8 @@ setup_config() {
 LOG_FILE="/opt/var/log/sms2gram.log"
 PENDING_FILE="$SMS2GRAM_DIR/pending_messages.json"
 MARK_READ_MESSAGE_AFTER_SEND="0"
+REBOOT_KEY=""
+BLACK_LIST=""
 
 BOT_TOKEN=""
 CHAT_ID=""
@@ -120,13 +122,13 @@ EOL
     chmod +x "$SMS2GRAM_DIR/$SMSD"
     ln -sf "$SMS2GRAM_DIR/$SMSD" "$PATH_SMSD"
   fi
-  read -p "Введите токен бота Telegram: " BOT_TOKEN
+  read -p "Введите токен бота Telegram (оставьте пустым, если не нужно): " BOT_TOKEN
   BOT_TOKEN=$(echo "$BOT_TOKEN" | sed 's/^[ \t]*//;s/[ \t]*$//')
   if [ -n "$BOT_TOKEN" ]; then
     sed -i "s|^BOT_TOKEN=.*|BOT_TOKEN=\"$BOT_TOKEN\"|" "$CONFIG_FILE"
   fi
 
-  read -p "Введите ID пользователя/чата Telegram: " CHAT_ID
+  read -p "Введите ID пользователя/чата Telegram (оставьте пустым, если не нужно): " CHAT_ID
   CHAT_ID=$(echo "$CHAT_ID" | sed 's/^[ \t]*//;s/[ \t]*$//')
   if [ -n "$CHAT_ID" ]; then
     sed -i "s|^CHAT_ID=.*|CHAT_ID=\"$CHAT_ID\"|" "$CONFIG_FILE"
@@ -137,6 +139,26 @@ EOL
   if [ -n "$MARK_READ_MESSAGE_AFTER_SEND" ]; then
     sed -i "/^MARK_READ_MESSAGE_AFTER_SEND=/d" "$CONFIG_FILE"
     sed -i "3i MARK_READ_MESSAGE_AFTER_SEND=\"$MARK_READ_MESSAGE_AFTER_SEND\"" "$CONFIG_FILE"
+  fi
+
+  read -p "Каким словом в SMS перезагружать устройство? (оставьте пустым, если не нужно): " REBOOT_KEY
+  REBOOT_KEY=$(echo "$REBOOT_KEY" | sed 's/^[ \t]*//;s/[ \t]*$//')
+  if [ -n "$REBOOT_KEY" ]; then
+    if grep -q "^REBOOT_KEY=" "$CONFIG_FILE"; then
+      sed -i "s|^REBOOT_KEY=.*|REBOOT_KEY=\"$REBOOT_KEY\"|" "$CONFIG_FILE"
+    else
+      echo "REBOOT_KEY=\"$REBOOT_KEY\"" >> "$CONFIG_FILE"
+    fi
+  fi
+
+  read -p "Черный список отправителей через запятую (оставьте пустым, если не нужно): " BLACK_LIST
+  BLACK_LIST=$(echo "$BLACK_LIST" | sed 's/^[ \t]*//;s/[ \t]*$//')
+  if [ -n "$BLACK_LIST" ]; then
+    if grep -q "^BLACK_LIST=" "$CONFIG_FILE"; then
+      sed -i "s|^BLACK_LIST=.*|BLACK_LIST=\"$BLACK_LIST\"|" "$CONFIG_FILE"
+    else
+      echo "BLACK_LIST=\"$BLACK_LIST\"" >> "$CONFIG_FILE"
+    fi
   fi
 
   dos2unix "$CONFIG_FILE"

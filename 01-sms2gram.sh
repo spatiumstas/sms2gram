@@ -8,7 +8,7 @@ PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SCRIPT="sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.1.10"
+SCRIPT_VERSION="v1.2"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 
 log() {
@@ -29,6 +29,10 @@ get_model() {
 
 mark_sms_read() {
   ndmc -c sms "$INTERFACE_ID" read "$MESSAGE_ID"
+}
+
+delete_sms() {
+  ndmc -c sms "$INTERFACE_ID" delete "$MESSAGE_ID"
 }
 
 check_symbolic_link() {
@@ -98,6 +102,11 @@ send_to_telegram() {
   local retry_count=0
   local max_retries=3
   local retry_delay=5
+
+  if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
+    error "Не настроены BOT_TOKEN/CHAT_ID в конфиге. Отправка в Telegram пропущена."
+    return 2
+  fi
   internet_checker
 
   escaped_text=$(echo "$text" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
@@ -122,11 +131,11 @@ send_to_telegram() {
 
   local payload
   if [ -n "$topic_id" ]; then
-    payload=$(printf '{"chat_id":%s,"message_thread_id":%s,"parse_mode":"HTML","text":"%s"}' \
-      "$chat_id" "$topic_id" "$message")
+    payload=$(jq -n --arg text "$message" --argjson chat_id "$chat_id" --argjson topic_id "$topic_id" \
+      '{chat_id: $chat_id, message_thread_id: $topic_id, parse_mode: "HTML", text: $text}')
   else
-    payload=$(printf '{"chat_id":%s,"parse_mode":"HTML","text":"%s"}' \
-      "$CHAT_ID" "$message")
+    payload=$(jq -n --arg text "$message" --argjson chat_id "$CHAT_ID" \
+      '{chat_id: $chat_id, parse_mode: "HTML", text: $text}')
   fi
 
   while [ $retry_count -lt $max_retries ]; do
@@ -195,6 +204,9 @@ save_pending_message() {
 }
 
 send_pending_messages() {
+  if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
+    return
+  fi
   if [ ! -f "$PENDING_FILE" ] || [ ! -s "$PENDING_FILE" ]; then
     echo "[]" >"$PENDING_FILE"
     return
@@ -274,10 +286,30 @@ main() {
   text=$(echo "$sms_json" | jq -r '.text')
   timestamp=$(echo "$sms_json" | jq -r '.timestamp')
 
+  if [ -n "${BLACK_LIST:-}" ]; then
+    if echo "$BLACK_LIST" \
+      | tr ',' '\n' \
+      | sed 's/^[ \t]*//;s/[ \t]*$//' \
+      | grep -Fx -- "$sender" >/dev/null 2>&1; then
+      log "Отправитель $sender в чёрном списке. Удаляю SMS и пропускаю отправку в Telegram."
+      delete_sms
+      return
+    fi
+  fi
+
+  if [ -n "${REBOOT_KEY:-}" ] && echo "$text" | grep -Fqi -- "$REBOOT_KEY"; then
+    log "Обнаружено слово "$text". Удаляю SMS и ухожу в перезагрузку."
+    delete_sms
+    ndmc -c system reboot 
+    return
+  fi
+
   log "Получено сообщение от $sender: $text"
 
   if ! send_to_telegram "$sender" "$timestamp" "$text"; then
-    save_pending_message "$sms_json"
+    if [ -n "${BOT_TOKEN:-}" ] && [ -n "${CHAT_ID:-}" ]; then
+      save_pending_message "$sms_json"
+    fi
   fi
 }
 
