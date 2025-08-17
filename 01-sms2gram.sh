@@ -289,11 +289,6 @@ main() {
     return
   fi
 
-  if ! echo "$sms_json" | jq empty 2>/dev/null; then
-    error "Ошибка: Некорректный JSON в sms_json: $sms_json"
-    return
-  fi
-
   local sender text timestamp
   sender=$(echo "$sms_json" | jq -r '.sender')
   text=$(echo "$sms_json" | jq -r '.text')
