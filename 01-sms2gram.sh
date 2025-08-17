@@ -12,14 +12,10 @@ SCRIPT_VERSION="v1.2.1"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 
 if [ "${DEBUG:-0}" = "1" ]; then
+  exec 19> $LOG_FILE
+  BASH_XTRACEFD=19
   set -x
 fi
-
-debug() {
-  if [ "${DEBUG:-0}" = "1" ]; then
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [DEBUG] $*" | tee -a "$LOG_FILE"
-  fi
-}
 
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" | tee -a "$LOG_FILE"
@@ -30,21 +26,19 @@ error() {
 }
 
 get_sms_data() {
-  debug "Запрос SMS данных: INTERFACE_ID=$INTERFACE_ID, MESSAGE_ID=$MESSAGE_ID"
   ndmc -c sms "$INTERFACE_ID" list id "$MESSAGE_ID" 2>/dev/null
 }
+
 
 get_model() {
   ndmc -c show version | grep "description" | awk -F": " '{print $2}' 2>/dev/null
 }
 
 mark_sms_read() {
-  debug "Помечаем SMS как прочитанное: $MESSAGE_ID"
   ndmc -c sms "$INTERFACE_ID" read "$MESSAGE_ID"
 }
 
 delete_sms() {
-  debug "Удаление SMS: $MESSAGE_ID"
   ndmc -c sms "$INTERFACE_ID" delete "$MESSAGE_ID"
 }
 
@@ -55,7 +49,6 @@ check_symbolic_link() {
 }
 
 internet_checker() {
-  debug "Проверка интернет соединения..."
   if ! ping -c 2 -W 2 8.8.8.8 >/dev/null 2>&1; then
     error "Нет доступа к интернету. Проверьте подключение."
   fi
@@ -81,7 +74,6 @@ clean_log() {
 
 parse_sms() {
   local sms_data="$1"
-  debug "Парсинг SMS: $sms_data"
   local sender timestamp text
 
   sender=$(echo "$sms_data" | awk '/from:/ {print $2}')
@@ -154,12 +146,10 @@ send_to_telegram() {
   fi
 
   while [ $retry_count -lt $max_retries ]; do
-    debug "Отправка в Telegram. Payload: $payload"
     local response
     response=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
       -H "Content-Type: application/json" \
       -d "$payload")
-    debug "Ответ Telegram API: $response"
 
     if echo "$response" | grep -q '"ok":true'; then
       log "Сообщение успешно отправлено."
@@ -299,6 +289,11 @@ main() {
     return
   fi
 
+  if ! echo "$sms_json" | jq empty 2>/dev/null; then
+    error "Ошибка: Некорректный JSON в sms_json: $sms_json"
+    return
+  fi
+
   local sender text timestamp
   sender=$(echo "$sms_json" | jq -r '.sender')
   text=$(echo "$sms_json" | jq -r '.text')
@@ -328,6 +323,10 @@ main() {
     if [ -n "${BOT_TOKEN:-}" ] && [ -n "${CHAT_ID:-}" ]; then
       save_pending_message "$sms_json"
     fi
+  fi
+
+  if [ "${DEBUG:-0}" = "1" ]; then
+    exec 19>&-
   fi
 }
 
