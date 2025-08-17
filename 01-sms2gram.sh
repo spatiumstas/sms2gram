@@ -8,8 +8,18 @@ PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SCRIPT="sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.2"
+SCRIPT_VERSION="v1.2.1"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
+
+if [ "${DEBUG:-0}" = "1" ]; then
+  set -x
+fi
+
+debug() {
+  if [ "${DEBUG:-0}" = "1" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [DEBUG] $*" | tee -a "$LOG_FILE"
+  fi
+}
 
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" | tee -a "$LOG_FILE"
@@ -20,6 +30,7 @@ error() {
 }
 
 get_sms_data() {
+  debug "Запрос SMS данных: INTERFACE_ID=$INTERFACE_ID, MESSAGE_ID=$MESSAGE_ID"
   ndmc -c sms "$INTERFACE_ID" list id "$MESSAGE_ID" 2>/dev/null
 }
 
@@ -28,10 +39,12 @@ get_model() {
 }
 
 mark_sms_read() {
+  debug "Помечаем SMS как прочитанное: $MESSAGE_ID"
   ndmc -c sms "$INTERFACE_ID" read "$MESSAGE_ID"
 }
 
 delete_sms() {
+  debug "Удаление SMS: $MESSAGE_ID"
   ndmc -c sms "$INTERFACE_ID" delete "$MESSAGE_ID"
 }
 
@@ -42,6 +55,7 @@ check_symbolic_link() {
 }
 
 internet_checker() {
+  debug "Проверка интернет соединения..."
   if ! ping -c 2 -W 2 8.8.8.8 >/dev/null 2>&1; then
     error "Нет доступа к интернету. Проверьте подключение."
   fi
@@ -67,6 +81,7 @@ clean_log() {
 
 parse_sms() {
   local sms_data="$1"
+  debug "Парсинг SMS: $sms_data"
   local sender timestamp text
 
   sender=$(echo "$sms_data" | awk '/from:/ {print $2}')
@@ -139,10 +154,12 @@ send_to_telegram() {
   fi
 
   while [ $retry_count -lt $max_retries ]; do
+    debug "Отправка в Telegram. Payload: $payload"
     local response
     response=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
       -H "Content-Type: application/json" \
       -d "$payload")
+    debug "Ответ Telegram API: $response"
 
     if echo "$response" | grep -q '"ok":true'; then
       log "Сообщение успешно отправлено."
@@ -258,6 +275,7 @@ main() {
   send_pending_messages
   if [ $# -gt 1 ]; then
     local CUSTOM_MESSAGE="$2"
+    log "Отправка кастомного сообщения: $CUSTOM_MESSAGE"
     send_to_telegram "" "" "$CUSTOM_MESSAGE"
     return
   fi
@@ -300,7 +318,7 @@ main() {
   if [ -n "${REBOOT_KEY:-}" ] && echo "$text" | grep -Fqi -- "$REBOOT_KEY"; then
     log "Обнаружено слово "$text". Удаляю SMS и ухожу в перезагрузку."
     delete_sms
-    ndmc -c system reboot 
+    ndmc -c system reboot
     return
   fi
 
