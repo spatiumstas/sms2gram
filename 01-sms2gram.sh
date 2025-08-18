@@ -11,6 +11,12 @@ PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
 SCRIPT_VERSION="v1.2"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 
+if [ "${DEBUG:-0}" = "1" ]; then
+  exec 19> $LOG_FILE
+  BASH_XTRACEFD=19
+  set -x
+fi
+
 log() {
   echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" | tee -a "$LOG_FILE"
 }
@@ -300,7 +306,7 @@ main() {
   if [ -n "${REBOOT_KEY:-}" ] && echo "$text" | grep -Fqi -- "$REBOOT_KEY"; then
     log "Обнаружено слово "$text". Удаляю SMS и ухожу в перезагрузку."
     delete_sms
-    ndmc -c system reboot 
+    ndmc -c system reboot
     return
   fi
 
@@ -310,6 +316,10 @@ main() {
     if [ -n "${BOT_TOKEN:-}" ] && [ -n "${CHAT_ID:-}" ]; then
       save_pending_message "$sms_json"
     fi
+  fi
+
+  if [ "${DEBUG:-0}" = "1" ]; then
+    exec 19>&-
   fi
 }
 

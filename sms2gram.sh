@@ -101,6 +101,23 @@ download_file() {
   fi
 }
 
+update_config_value() {
+  local prompt="$1"
+  local key="$2"
+  local value
+
+  read -p "$prompt" value
+  value=$(echo "$value" | sed 's/^[ \t]*//;s/[ \t]*$//')
+
+  if [ -n "$value" ]; then
+    if grep -q "^$key=" "$CONFIG_FILE"; then
+      sed -i "s|^$key=.*|$key=\"$value\"|" "$CONFIG_FILE"
+    else
+      echo "$key=\"$value\"" >> "$CONFIG_FILE"
+    fi
+  fi
+}
+
 setup_config() {
   if [ ! -f "$CONFIG_FILE" ]; then
     print_message "Конфигурационный файл не найден, создаём его..." "$CYAN"
@@ -111,7 +128,7 @@ PENDING_FILE="$SMS2GRAM_DIR/pending_messages.json"
 MARK_READ_MESSAGE_AFTER_SEND="0"
 REBOOT_KEY=""
 BLACK_LIST=""
-
+DEBUG="0"
 BOT_TOKEN=""
 CHAT_ID=""
 
@@ -122,44 +139,12 @@ EOL
     chmod +x "$SMS2GRAM_DIR/$SMSD"
     ln -sf "$SMS2GRAM_DIR/$SMSD" "$PATH_SMSD"
   fi
-  read -p "Введите токен бота Telegram (оставьте пустым, если не нужно): " BOT_TOKEN
-  BOT_TOKEN=$(echo "$BOT_TOKEN" | sed 's/^[ \t]*//;s/[ \t]*$//')
-  if [ -n "$BOT_TOKEN" ]; then
-    sed -i "s|^BOT_TOKEN=.*|BOT_TOKEN=\"$BOT_TOKEN\"|" "$CONFIG_FILE"
-  fi
 
-  read -p "Введите ID пользователя/чата Telegram (оставьте пустым, если не нужно): " CHAT_ID
-  CHAT_ID=$(echo "$CHAT_ID" | sed 's/^[ \t]*//;s/[ \t]*$//')
-  if [ -n "$CHAT_ID" ]; then
-    sed -i "s|^CHAT_ID=.*|CHAT_ID=\"$CHAT_ID\"|" "$CONFIG_FILE"
-  fi
-
-  read -p "Помечать сообщение прочитанным после успешной отправки? (1 - да, 0 - нет): " MARK_READ_MESSAGE_AFTER_SEND
-  MARK_READ_MESSAGE_AFTER_SEND=$(echo "$MARK_READ_MESSAGE_AFTER_SEND" | sed 's/^[ \t]*//;s/[ \t]*$//')
-  if [ -n "$MARK_READ_MESSAGE_AFTER_SEND" ]; then
-    sed -i "/^MARK_READ_MESSAGE_AFTER_SEND=/d" "$CONFIG_FILE"
-    sed -i "3i MARK_READ_MESSAGE_AFTER_SEND=\"$MARK_READ_MESSAGE_AFTER_SEND\"" "$CONFIG_FILE"
-  fi
-
-  read -p "Каким словом в SMS перезагружать устройство? (оставьте пустым, если не нужно): " REBOOT_KEY
-  REBOOT_KEY=$(echo "$REBOOT_KEY" | sed 's/^[ \t]*//;s/[ \t]*$//')
-  if [ -n "$REBOOT_KEY" ]; then
-    if grep -q "^REBOOT_KEY=" "$CONFIG_FILE"; then
-      sed -i "s|^REBOOT_KEY=.*|REBOOT_KEY=\"$REBOOT_KEY\"|" "$CONFIG_FILE"
-    else
-      echo "REBOOT_KEY=\"$REBOOT_KEY\"" >> "$CONFIG_FILE"
-    fi
-  fi
-
-  read -p "Черный список отправителей через запятую (оставьте пустым, если не нужно): " BLACK_LIST
-  BLACK_LIST=$(echo "$BLACK_LIST" | sed 's/^[ \t]*//;s/[ \t]*$//')
-  if [ -n "$BLACK_LIST" ]; then
-    if grep -q "^BLACK_LIST=" "$CONFIG_FILE"; then
-      sed -i "s|^BLACK_LIST=.*|BLACK_LIST=\"$BLACK_LIST\"|" "$CONFIG_FILE"
-    else
-      echo "BLACK_LIST=\"$BLACK_LIST\"" >> "$CONFIG_FILE"
-    fi
-  fi
+  update_config_value "Введите токен бота Telegram (оставьте пустым, если не нужно): " "BOT_TOKEN"
+  update_config_value "Введите ID пользователя/чата Telegram (оставьте пустым, если не нужно): " "CHAT_ID"
+  update_config_value "Помечать сообщение прочитанным после успешной отправки? (1 - да, 0 - нет): " "MARK_READ_MESSAGE_AFTER_SEND"
+  update_config_value "Каким словом в SMS перезагружать устройство? (оставьте пустым, если не нужно): " "REBOOT_KEY"
+  update_config_value "Черный список отправителей через запятую (оставьте пустым, если не нужно): " "BLACK_LIST"
 
   dos2unix "$CONFIG_FILE"
 
@@ -258,7 +243,7 @@ post_update() {
     sed -i 's|^LOG_FILE=.*|LOG_FILE="/opt/var/log/sms2gram.log"|' "$CONFIG_FILE"
   fi
 
-  URL=$(echo "aHR0cHM6Ly9sb2cuc3BhdGl1bS5rZWVuZXRpYy5wcm8=" | base64 -d)
+  URL=$(echo "aHR0cHM6Ly9sb2cuc3BhdGl1bS5uZXRjcmF6ZS5wcm8=" | base64 -d)
   JSON_DATA="{\"script_update\": \"sms2gram_update_$SCRIPT_VERSION\"}"
   curl -X POST -H "Content-Type: application/json" -d "$JSON_DATA" "$URL" -o /dev/null -s
   main_menu
