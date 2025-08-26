@@ -15,6 +15,7 @@ SMS2GRAM_DIR="/opt/root/sms2gram"
 LOG="/opt/var/log/sms2gram.log"
 SMSD="01-sms2gram.sh"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
+PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
 CONFIG_FILE="$SMS2GRAM_DIR/config.sh"
 SCRIPT_VERSION=$(grep -oP 'SCRIPT_VERSION="\K[^"]+' "$SMS2GRAM_DIR/$SMSD")
 
@@ -113,7 +114,7 @@ update_config_value() {
     if grep -q "^$key=" "$CONFIG_FILE"; then
       sed -i "s|^$key=.*|$key=\"$value\"|" "$CONFIG_FILE"
     else
-      echo "$key=\"$value\"" >> "$CONFIG_FILE"
+      echo "$key=\"$value\"" >>"$CONFIG_FILE"
     fi
   fi
 }
@@ -171,6 +172,9 @@ remove_script() {
 
   echo "Удаляю файл $PATH_SMSD..."
   rm -r "$PATH_SMSD" 2>/dev/null
+
+  echo "Удаляю файл $PATH_IFIPCHANGED..."
+  rm -r "$PATH_IFIPCHANGED" 2>/dev/null
 
   echo "Удаляю файл $OPT_DIR/bin/sms2gram..."
   rm -r "$OPT_DIR/bin/sms2gram" 2>/dev/null
