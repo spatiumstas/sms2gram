@@ -3,26 +3,42 @@
 source /opt/root/sms2gram/config.sh
 export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
 INTERFACE_ID="$interface_id"
+IP_ID="$id"
 MESSAGE_ID="$message_id"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SCRIPT="sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.2"
+SCRIPT_VERSION="v1.3"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
+MODEM_PATTERN="UsbQmi[0-9]*|UsbLte[0-9]*"
 
 if [ "${DEBUG:-0}" = "1" ]; then
-  exec 19> $LOG_FILE
+  exec 19>$LOG_FILE
   BASH_XTRACEFD=19
   set -x
 fi
 
+rci() {
+  local endpoint="$1"
+  local body="${2:-}"
+  if [ -n "$body" ]; then
+    curl -s --header "Content-Type: application/json" --request POST --data "$body" http://localhost:79/rci/
+  else
+    curl -s "http://localhost:79/rci/$endpoint"
+  fi
+}
+
 log() {
-  echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*" | tee -a "$LOG_FILE"
+  local message="$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*"
+  echo "$message" | tee -a "$LOG_FILE"
+  logger -p notice -t sms2gram "$*"
 }
 
 error() {
-  echo "$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $*" | tee -a "$LOG_FILE"
+  local message="$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $*"
+  echo "$message" | tee -a "$LOG_FILE"
+  logger -p err -t sms2gram "$*"
 }
 
 get_sms_data() {
@@ -30,15 +46,31 @@ get_sms_data() {
 }
 
 get_model() {
-  ndmc -c show version | grep "description" | awk -F": " '{print $2}' 2>/dev/null
+  rci "show/version" | grep -o '"description": "[^"]*"' | cut -d'"' -f4 2>/dev/null
+}
+
+get_sim_status() {
+  local result=""
+  local attempts=0
+  local max_attempts=5
+
+  while [ $attempts -lt $max_attempts ] && [ -z "$result" ]; do
+    attempts=$((attempts + 1))
+    result=$(rci "show/interface/$IP_ID" | jq -r '.sim // empty' | head -n1)
+    if [ -z "$result" ] && [ $attempts -lt $max_attempts ]; then
+      sleep 5
+    fi
+  done
+  result=$(printf '%s' "$result" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  echo "$result"
 }
 
 mark_sms_read() {
-  ndmc -c sms "$INTERFACE_ID" read "$MESSAGE_ID"
+  rci "" "[{\"sms\":{\"read\":[{\"interface\":\"$INTERFACE_ID\",\"id\":\"$MESSAGE_ID\"}]}}]" >/dev/null 2>&1
 }
 
 delete_sms() {
-  ndmc -c sms "$INTERFACE_ID" delete "$MESSAGE_ID"
+  rci "" "[{\"sms\":{\"delete\":[{\"interface\":\"$INTERFACE_ID\",\"id\":\"$MESSAGE_ID\"}]}}]" >/dev/null 2>&1
 }
 
 check_symbolic_link() {
@@ -54,6 +86,51 @@ internet_checker() {
 
   if ! ping -c 2 -W 2 api.telegram.org >/dev/null 2>&1; then
     error "Нет доступа к api.telegram.org"
+  fi
+}
+
+check_sim_card() {
+  if [ "${REBOOT_SIM_IF_INVALID:-0}" = "0" ] || [ -z "$IP_ID" ]; then
+    return
+  fi
+
+  local sim_status=$(get_sim_status)
+  if printf '%s' "$sim_status" | grep -Eq '^(NOT_INSERTED|INVALID)$'; then
+
+    if [ "${REBOOT_SIM_IF_INVALID:-0}" = "1" ]; then
+      error "Статус SIM-карты $sim_status. Перезагружаю модем..."
+      rci "" "[{\"interface\":{\"usb\":{\"power-cycle\":{\"pause\":2000}},\"name\":\"$IP_ID\"}}]" >/dev/null 2>&1
+    elif [ "${REBOOT_SIM_IF_INVALID:-0}" = "2" ]; then
+      error "Статус SIM-карты $sim_status. Перезагружаю роутер..."
+      rci "" "[{\"system\":{\"reboot\":{}}}]" >/dev/null 2>&1
+    fi
+    exit
+  fi
+}
+
+check_black_list() {
+  local sender="$1"
+
+  if [ -n "${BLACK_LIST:-}" ]; then
+    if echo "$BLACK_LIST" |
+      tr ',' '\n' |
+      sed 's/^[ \t]*//;s/[ \t]*$//' |
+      grep -Fx -- "$sender" >/dev/null 2>&1; then
+      log "Отправитель $sender в чёрном списке. Удаляю SMS и пропускаю отправку в Telegram."
+      delete_sms
+      exit
+    fi
+  fi
+}
+
+check_reboot_key() {
+  local text="$1"
+
+  if [ -n "${REBOOT_KEY:-}" ] && echo "$text" | grep -Fqi -- "$REBOOT_KEY"; then
+    log "Обнаружено слово "$text". Удаляю SMS и ухожу в перезагрузку."
+    delete_sms
+    rci "" "[{\"system\":{\"reboot\":{}}}]" >/dev/null 2>&1
+    exit
   fi
 }
 
@@ -233,7 +310,6 @@ send_pending_messages() {
 
     log "Отправка сохранённого сообщения от $sender ($timestamp)..."
     if send_to_telegram "$sender" "$timestamp" "$text"; then
-      log "Сохранённое сообщение отправлено."
       pending=$(echo "$pending" | jq --arg s "$sender" --arg t "$text" --arg ts "$timestamp" \
         'del(.[] | select(.sender == $s and .text == $t and .timestamp == $ts))')
       echo "$pending" >"$PENDING_FILE"
@@ -248,17 +324,14 @@ send_pending_messages() {
 }
 
 main() {
+  local sms_data
+  local sms_json
+  local sender text timestamp
   clean_log
   check_symbolic_link
+
   if [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
     log "Запуск скрипта. INTERFACE_ID=$INTERFACE_ID, MESSAGE_ID=$MESSAGE_ID"
-  fi
-
-  if [ "$1" = "hook" ]; then
-    if [ -z "$INTERFACE_ID" ] && [ -z "$MESSAGE_ID" ]; then
-      send_pending_messages
-      return
-    fi
   fi
 
   send_pending_messages
@@ -268,49 +341,35 @@ main() {
     return
   fi
 
-  if [ -z "$INTERFACE_ID" ] || [ -z "$MESSAGE_ID" ]; then
-    error "Не получены переменные interface_id или message_id."
+  if ! echo "$IP_ID" | grep -qE "$MODEM_PATTERN" && ! echo "$INTERFACE_ID" | grep -qE "$MODEM_PATTERN"; then
     return
   fi
 
-  local sms_data
+  check_sim_card
+  if [ -z "$INTERFACE_ID" ] || [ -z "$MESSAGE_ID" ]; then
+    return
+  fi
+
   sms_data=$(get_sms_data)
   if [ -z "$sms_data" ]; then
     error "Не удалось получить данные SMS с ID $MESSAGE_ID."
     return
   fi
 
-  local sms_json
   sms_json=$(parse_sms "$sms_data")
   if [ -z "$sms_json" ]; then
     error "Ошибка парсинга SMS."
     return
   fi
 
-  local sender text timestamp
   sender=$(echo "$sms_json" | jq -r '.sender')
   text=$(echo "$sms_json" | jq -r '.text')
   timestamp=$(echo "$sms_json" | jq -r '.timestamp')
 
-  if [ -n "${BLACK_LIST:-}" ]; then
-    if echo "$BLACK_LIST" \
-      | tr ',' '\n' \
-      | sed 's/^[ \t]*//;s/[ \t]*$//' \
-      | grep -Fx -- "$sender" >/dev/null 2>&1; then
-      log "Отправитель $sender в чёрном списке. Удаляю SMS и пропускаю отправку в Telegram."
-      delete_sms
-      return
-    fi
-  fi
-
-  if [ -n "${REBOOT_KEY:-}" ] && echo "$text" | grep -Fqi -- "$REBOOT_KEY"; then
-    log "Обнаружено слово "$text". Удаляю SMS и ухожу в перезагрузку."
-    delete_sms
-    ndmc -c system reboot
-    return
-  fi
-
   log "Получено сообщение от $sender: $text"
+
+  check_black_list "$sender"
+  check_reboot_key "$text"
 
   if ! send_to_telegram "$sender" "$timestamp" "$text"; then
     if [ -n "${BOT_TOKEN:-}" ] && [ -n "${CHAT_ID:-}" ]; then

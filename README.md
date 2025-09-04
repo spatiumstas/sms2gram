@@ -1,10 +1,13 @@
 # Возможности
+
 - Отправка полученного SMS в Telegram (чат/канал/мультичат)
+- Перезагрузка роутера/модема при недоступности SIM-карты
 - Перезагрузка роутера при получении заданной фразы в сообщении (SMS удаляется, не отправляется в Telegram)
 - Удаление сообщения от заданных отправителей, например RSCHS/MCHS (не отправляется в Telegram)
 - Если сообщение не было отправлено (например нет интернета), добавляется в очередь `/opt/root/sms2gram/pending_messages.json`. Проверяется при каждой отправке сообщения/смене соединения
-- Просмотр логов `cat /opt/var/log/sms2gram.log`
+- Просмотр логов `cat /opt/var/log/sms2gram.log` или журнале Keenetic
 - Для ручной отправки сообщения:
+
 ````shell
 interface_id=UsbQmi0 message_id=nv-1 /opt/etc/ndm/sms.d/01-sms2gram.sh
 ````
@@ -14,6 +17,7 @@ interface_id=UsbQmi0 message_id=nv-1 /opt/etc/ndm/sms.d/01-sms2gram.sh
 # Установка:
 
 1. В `SSH` ввести команду
+
 ```shell
 opkg update && opkg install curl && curl -L -s "https://raw.githubusercontent.com/spatiumstas/sms2gram/main/install.sh" > /tmp/install.sh && sh /tmp/install.sh
 ```

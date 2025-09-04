@@ -130,6 +130,7 @@ MARK_READ_MESSAGE_AFTER_SEND="0"
 REBOOT_KEY=""
 BLACK_LIST=""
 DEBUG="0"
+REBOOT_SIM_IF_INVALID="0"
 BOT_TOKEN=""
 CHAT_ID=""
 
@@ -146,6 +147,8 @@ EOL
   update_config_value "Помечать сообщение прочитанным после успешной отправки? (1 - да, 0 - нет): " "MARK_READ_MESSAGE_AFTER_SEND"
   update_config_value "Каким словом в SMS перезагружать устройство? (оставьте пустым, если не нужно): " "REBOOT_KEY"
   update_config_value "Черный список отправителей через запятую (оставьте пустым, если не нужно): " "BLACK_LIST"
+  update_config_value "Что перезагружать при недоступности SIM-карты? (2 - роутер, 1 - модем, 0 - ничего): " "REBOOT_SIM_IF_INVALID"
+  update_config_value "Включить отладку? (1 - да, 0 - нет): " "DEBUG"
 
   dos2unix "$CONFIG_FILE"
 
