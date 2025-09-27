@@ -232,6 +232,9 @@ send_to_telegram() {
       if [ "$MARK_READ_MESSAGE_AFTER_SEND" = "1" ] && [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
         mark_sms_read
       fi
+      if [ "$DELETE_MESSAGE_AFTER_SEND" = "1" ] && [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
+        delete_sms
+      fi
       return 0
     else
       error "Ошибка отправки в Telegram: $response"
