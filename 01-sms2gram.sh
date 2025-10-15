@@ -9,7 +9,7 @@ PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SCRIPT="sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.3"
+SCRIPT_VERSION="v1.3.1"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 MODEM_PATTERN="UsbQmi[0-9]*|UsbLte[0-9]*"
 
@@ -47,6 +47,15 @@ get_sms_data() {
 
 get_model() {
   rci "show/version" | grep -o '"description": "[^"]*"' | cut -d'"' -f4 2>/dev/null
+}
+
+get_modem_description() {
+  local iface="${1:-$INTERFACE_ID}"
+  if [ -z "$iface" ]; then
+    echo ""
+    return
+  fi
+  rci "show/interface/$iface" | grep -o '"description": "[^"]*"' | cut -d'"' -f4 2>/dev/null
 }
 
 get_sim_status() {
@@ -181,6 +190,7 @@ send_to_telegram() {
   local sender="$1"
   local timestamp="$2"
   local text="$3"
+  local iface="$4"
   local escaped_text
   local retry_count=0
   local max_retries=3
@@ -201,8 +211,9 @@ send_to_telegram() {
     local model
     model=$(get_model)
     model=${model:-"[Unknown Model]"}
+    modem_description=$(get_modem_description "$iface")
     message=$(printf "%s\n\n<b>Сообщение от:</b> %s\n<b>Дата:</b> %s\n\n<b>Текст:</b> %s" \
-      "$model" "$sender" "$timestamp" "$escaped_text")
+      "$model | $modem_description" "$sender" "$timestamp" "$escaped_text")
   fi
 
   local chat_id="${CHAT_ID%%_*}"
@@ -226,6 +237,11 @@ send_to_telegram() {
     response=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
       -H "Content-Type: application/json" \
       -d "$payload")
+
+    if [ -z "$response" ]; then
+      error "Ошибка отправки в Telegram: Пустой ответ, выполните обновление всех пакетов или переустановите Entware"
+      return 1
+    fi
 
     if echo "$response" | grep -q '"ok":true'; then
       log "Сообщение успешно отправлено."
@@ -265,6 +281,7 @@ save_pending_message() {
     return
   fi
 
+  sms_json=$(echo "$sms_json" | jq --arg iface "$INTERFACE_ID" '. + {interface: $iface}')
   if [ ! -f "$PENDING_FILE" ] || [ ! -s "$PENDING_FILE" ]; then
     echo "[]" >"$PENDING_FILE"
   fi
@@ -306,13 +323,14 @@ send_pending_messages() {
   fi
 
   echo "$pending" | jq -c '.[]' | while read -r message; do
-    local sender text timestamp
+    local sender text timestamp iface
     sender=$(echo "$message" | jq -r '.sender')
     text=$(echo "$message" | jq -r '.text')
     timestamp=$(echo "$message" | jq -r '.timestamp')
+    iface=$(echo "$message" | jq -r '.interface')
 
     log "Отправка сохранённого сообщения от $sender ($timestamp)..."
-    if send_to_telegram "$sender" "$timestamp" "$text"; then
+    if send_to_telegram "$sender" "$timestamp" "$text" "$iface"; then
       pending=$(echo "$pending" | jq --arg s "$sender" --arg t "$text" --arg ts "$timestamp" \
         'del(.[] | select(.sender == $s and .text == $t and .timestamp == $ts))')
       echo "$pending" >"$PENDING_FILE"
@@ -368,6 +386,11 @@ main() {
   sender=$(echo "$sms_json" | jq -r '.sender')
   text=$(echo "$sms_json" | jq -r '.text')
   timestamp=$(echo "$sms_json" | jq -r '.timestamp')
+
+  if [ -z "$text" ]; then
+    error "Получено пустое или несуществующее сообщение"
+    return
+  fi
 
   log "Получено сообщение от $sender: $text"
 
