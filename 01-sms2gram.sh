@@ -9,7 +9,7 @@ PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SCRIPT="sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.3.1"
+SCRIPT_VERSION="v1.3.2"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 MODEM_PATTERN="UsbQmi[0-9]*|UsbLte[0-9]*"
 
@@ -119,16 +119,40 @@ check_sim_card() {
 
 check_black_list() {
   local sender="$1"
+  local normalized
 
-  if [ -n "${BLACK_LIST:-}" ]; then
-    if echo "$BLACK_LIST" |
-      tr ',' '\n' |
-      sed 's/^[ \t]*//;s/[ \t]*$//' |
-      grep -Fx -- "$sender" >/dev/null 2>&1; then
-      log "Отправитель $sender в чёрном списке. Удаляю SMS и пропускаю отправку в Telegram."
-      delete_sms
-      exit
-    fi
+  normalized=$(printf '%s' "$BLACK_LIST" |
+    tr ',' '\n' |
+    sed 's/^[ \t]*//;s/[ \t]*$//' |
+    sed '/^$/d')
+
+  if [ -z "$normalized" ]; then
+    return
+  fi
+
+  if printf '%s\n' "$normalized" | grep -Fx -- "$sender" >/dev/null 2>&1; then
+    log "Отправитель $sender в чёрном списке. Удаляю SMS и пропускаю отправку в Telegram."
+    delete_sms
+    exit
+  fi
+}
+
+check_white_list() {
+  local sender="$1"
+  local normalized
+  
+  normalized=$(printf '%s' "$WHITE_LIST" |
+    tr ',' '\n' |
+    sed 's/^[ \t]*//;s/[ \t]*$//' |
+    sed '/^$/d')
+
+  if [ -z "$normalized" ]; then
+    return
+  fi
+
+  if ! printf '%s\n' "$normalized" | grep -Fx -- "$sender" >/dev/null 2>&1; then
+    log "Отправитель $sender не в белом списке. Пропускаю отправку в Telegram."
+    exit
   fi
 }
 
@@ -395,6 +419,7 @@ main() {
   log "Получено сообщение от $sender: $text"
 
   check_black_list "$sender"
+  check_white_list "$sender"
   check_reboot_key "$text"
 
   if ! send_to_telegram "$sender" "$timestamp" "$text"; then

@@ -110,6 +110,15 @@ update_config_value() {
   read -p "$prompt" value
   value=$(echo "$value" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
+  if [ "$value" = "-" ]; then
+    if grep -q "^$key=" "$CONFIG_FILE"; then
+      sed -i "s|^$key=.*|$key=\"\"|" "$CONFIG_FILE"
+    else
+      echo "$key=\"\"" >>"$CONFIG_FILE"
+    fi
+    return
+  fi
+
   if [ -n "$value" ]; then
     if grep -q "^$key=" "$CONFIG_FILE"; then
       sed -i "s|^$key=.*|$key=\"$value\"|" "$CONFIG_FILE"
@@ -130,6 +139,7 @@ MARK_READ_MESSAGE_AFTER_SEND="0"
 DELETE_MESSAGE_AFTER_SEND="0"
 REBOOT_KEY=""
 BLACK_LIST=""
+WHITE_LIST=""
 DEBUG="0"
 REBOOT_SIM_IF_INVALID="0"
 BOT_TOKEN=""
@@ -143,12 +153,13 @@ EOL
     ln -sf "$SMS2GRAM_DIR/$SMSD" "$PATH_SMSD"
   fi
 
-  update_config_value "Введите токен бота Telegram (оставьте пустым, если не нужно): " "BOT_TOKEN"
-  update_config_value "Введите ID пользователя/чата Telegram (оставьте пустым, если не нужно): " "CHAT_ID"
+  update_config_value "Введите токен бота Telegram (пусто — без изменений, '-' — очистить): " "BOT_TOKEN"
+  update_config_value "Введите ID пользователя/чата Telegram (пусто — без изменений, '-' — очистить): " "CHAT_ID"
   update_config_value "Помечать сообщение прочитанным после успешной отправки? (1 - да, 0 - нет): " "MARK_READ_MESSAGE_AFTER_SEND"
   update_config_value "Удалять сообщение после успешной отправки? (1 - да, 0 - нет): " "DELETE_MESSAGE_AFTER_SEND"
-  update_config_value "Каким словом в SMS перезагружать устройство? (оставьте пустым, если не нужно): " "REBOOT_KEY"
-  update_config_value "Черный список отправителей через запятую (оставьте пустым, если не нужно): " "BLACK_LIST"
+  update_config_value "Каким словом в SMS перезагружать устройство? (пусто — без изменений, '-' — очистить): " "REBOOT_KEY"
+  update_config_value "Черный список отправителей через запятую (пусто — без изменений, '-' — очистить): " "BLACK_LIST"
+  update_config_value "Белый список отправителей через запятую (пусто — без изменений, '-' — очистить): " "WHITE_LIST"
   update_config_value "Что перезагружать при недоступности SIM-карты? (2 - роутер, 1 - модем, 0 - ничего): " "REBOOT_SIM_IF_INVALID"
   update_config_value "Включить отладку? (1 - да, 0 - нет): " "DEBUG"
 
