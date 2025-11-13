@@ -9,7 +9,7 @@ PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SCRIPT="sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.3.2"
+SCRIPT_VERSION="v1.4"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 MODEM_PATTERN="UsbQmi[0-9]*|UsbLte[0-9]*"
 
@@ -47,6 +47,45 @@ get_sms_data() {
 
 get_model() {
   rci "show/version" | grep -o '"description": "[^"]*"' | cut -d'"' -f4 2>/dev/null
+}
+
+set_header() {
+  local iface="${1:-$INTERFACE_ID}"
+  local model modem_description
+  model=$(get_model)
+  model=${model:-"[Unknown Model]"}
+  modem_description=$(get_modem_description "$iface")
+  if [ -n "$modem_description" ]; then
+    printf "%s | %s" "$model" "$modem_description"
+  else
+    printf "%s" "$model"
+  fi
+}
+
+is_at_command() {
+  local text="$1"
+  echo "$text" | grep -Eiq '^[[:space:]]*at'
+}
+
+send_at_command() {
+  local iface="$1"
+  local text="$2"
+  local output=""
+  local reply
+    local cmd
+  if [ "${AT_COMMANDS_ENABLED:-0}" != "1" ]; then
+    return 1
+  fi
+
+  cmd=$(printf '%s' "$text" | sed 's/^[[:space:]]*//')
+  log "Получена AT-команда: $cmd"
+  output=$(ndmc -c interface "$iface" tty send "$cmd" 2>&1 | tr -d '\r' | sed 's/\[K//g')
+  local header
+  header=$(set_header "$iface")
+
+  reply=$(printf "%s\n\nAT-команда: %s\nИнтерфейс: %s\nОтвет модема:\n\n%s" "$header" "$cmd" "$iface" "$output")
+  send_to_telegram "" "" "$reply" "$iface"
+  return 0
 }
 
 get_modem_description() {
@@ -256,12 +295,10 @@ send_to_telegram() {
   if [ -z "$sender" ] && [ -z "$timestamp" ]; then
     message="$escaped_text"
   else
-    local model
-    model=$(get_model)
-    model=${model:-"[Unknown Model]"}
-    modem_description=$(get_modem_description "$iface")
+    local header
+    header=$(set_header "$iface")
     message=$(printf "%s\n\n<b>Сообщение от:</b> %s\n<b>Дата:</b> %s\n\n<b>Текст:</b> %s" \
-      "$model | $modem_description" "$sender" "$timestamp" "$escaped_text")
+      "$header" "$sender" "$timestamp" "$escaped_text")
   fi
 
   local chat_id="${CHAT_ID%%_*}"
@@ -434,6 +471,15 @@ main() {
   sender=$(echo "$sms_json" | jq -r '.sender')
   text=$(echo "$sms_json" | jq -r '.text')
   timestamp=$(echo "$sms_json" | jq -r '.timestamp')
+
+  if is_at_command "$text"; then
+    if send_at_command "$INTERFACE_ID" "$text"; then
+      if [ "${DEBUG:-0}" = "1" ]; then
+        exec 19>&-
+      fi
+      return
+    fi
+  fi
 
   if [ -z "$text" ]; then
     error "Получено пустое или несуществующее сообщение"
