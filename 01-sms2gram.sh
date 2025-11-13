@@ -140,7 +140,7 @@ check_black_list() {
 check_white_list() {
   local sender="$1"
   local normalized
-  
+
   normalized=$(printf '%s' "$WHITE_LIST" |
     tr ',' '\n' |
     sed 's/^[ \t]*//;s/[ \t]*$//' |
@@ -154,6 +154,30 @@ check_white_list() {
     log "Отправитель $sender не в белом списке. Пропускаю отправку в Telegram."
     exit
   fi
+}
+
+check_text_black_list() {
+  local text="$1"
+  local normalized
+
+  normalized=$(printf '%s' "$TEXT_BLACK_LIST" |
+    tr ',' '\n' |
+    sed 's/^[ \t]*//;s/[ \t]*$//' |
+    sed '/^$/d')
+
+  if [ -z "$normalized" ]; then
+    return
+  fi
+
+  while IFS= read -r pattern; do
+    if echo "$text" | grep -Fqi -- "$pattern"; then
+      log "Текст сообщения соответствует чёрному списку по шаблону '$pattern'. Удаляю SMS и пропускаю отправку в Telegram."
+      delete_sms
+      exit
+    fi
+  done <<EOF
+$normalized
+EOF
 }
 
 check_reboot_key() {
@@ -420,6 +444,7 @@ main() {
 
   check_black_list "$sender"
   check_white_list "$sender"
+  check_text_black_list "$text"
   check_reboot_key "$text"
 
   if ! send_to_telegram "$sender" "$timestamp" "$text"; then
