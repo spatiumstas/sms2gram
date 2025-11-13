@@ -71,20 +71,31 @@ send_at_command() {
   local iface="$1"
   local text="$2"
   local output=""
+  local rc
   local reply
-    local cmd
+  local cmd
+  local header
+
   if [ "${AT_COMMANDS_ENABLED:-0}" != "1" ]; then
     return 1
   fi
 
   cmd=$(printf '%s' "$text" | sed 's/^[[:space:]]*//')
   log "Получена AT-команда: $cmd"
+  delete_sms
   output=$(ndmc -c interface "$iface" tty send "$cmd" 2>&1 | tr -d '\r' | sed 's/\[K//g')
-  local header
   header=$(set_header "$iface")
 
-  reply=$(printf "%s\n\nAT-команда: %s\nИнтерфейс: %s\nОтвет модема:\n\n%s" "$header" "$cmd" "$iface" "$output")
+  reply=$(printf "%s\n\nСообщение от: %s\nДата: %s\nAT-команда: %s\nИнтерфейс: %s\nОтвет модема:\n\n%s" "$header" "$sender" "$timestamp" "$cmd" "$iface" "$output")
   send_to_telegram "" "" "$reply" "$iface"
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    local at_json pending_text
+    pending_text=$(printf "AT-команда: %s\nИнтерфейс: %s\nОтвет модема:\n\n%s" "$cmd" "$iface" "$output")
+    at_json=$(jq -n --arg sender "$sender" --arg timestamp "$timestamp" --arg text "$pending_text" \
+      '{"sender": $sender, "timestamp": $timestamp, "text": $text}')
+    save_pending_message "$at_json"
+  fi
   return 0
 }
 
@@ -128,12 +139,8 @@ check_symbolic_link() {
 }
 
 internet_checker() {
-  if ! ping -c 2 -W 2 8.8.8.8 >/dev/null 2>&1; then
-    error "Нет доступа к интернету. Проверьте подключение."
-  fi
-
   if ! ping -c 2 -W 2 api.telegram.org >/dev/null 2>&1; then
-    error "Нет доступа к api.telegram.org"
+    error "Нет доступа к api.telegram.org или интернету. Проверьте подключение."
   fi
 }
 
