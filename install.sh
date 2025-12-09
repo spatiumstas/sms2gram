@@ -23,9 +23,4 @@ curl -L -s "https://raw.githubusercontent.com/spatiumstas/$REPO/main/$SMSD" --ou
 mv "$TMP_DIR/$SMSD" "$SMS2GRAM_DIR/$SMSD"
 chmod +x "$SMS2GRAM_DIR/$SMSD"
 ln -sf "$SMS2GRAM_DIR/$SMSD" "$SMS_DIR/$SMSD"
-
-URL=$(echo "aHR0cHM6Ly9sb2cuc3BhdGl1bS5rZWVuZXRpYy5wcm8=" | base64 -d)
-JSON_DATA="{\"script_update\": \"sms2gram_install\"}"
-curl -X POST -H "Content-Type: application/json" -d "$JSON_DATA" "$URL" -o /dev/null -s
-
 "$SMS2GRAM_DIR/$SCRIPT"

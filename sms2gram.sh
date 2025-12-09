@@ -263,18 +263,6 @@ test_message_send() {
   exit_function
 }
 
-post_update() {
-  if [ -f "$SMS2GRAM_DIR/log.txt" ]; then
-    mv $SMS2GRAM_DIR/log.txt $LOG
-    sed -i 's|^LOG_FILE=.*|LOG_FILE="/opt/var/log/sms2gram.log"|' "$CONFIG_FILE"
-  fi
-
-  URL=$(echo "aHR0cHM6Ly9sb2cuc3BhdGl1bS5uZXRjcmF6ZS5wcm8=" | base64 -d)
-  JSON_DATA="{\"script_update\": \"sms2gram_update_$SCRIPT_VERSION\"}"
-  curl -X POST -H "Content-Type: application/json" -d "$JSON_DATA" "$URL" -o /dev/null -s
-  main_menu
-}
-
 script_update() {
   BRANCH="$1"
   packages_checker
@@ -295,7 +283,7 @@ script_update() {
       print_message "Скрипт успешно обновлён" "$GREEN"
     fi
     sleep 1
-    "$SMS2GRAM_DIR/$SCRIPT" "post_update"
+    "$SMS2GRAM_DIR/$SCRIPT"
   else
     print_message "Ошибка при скачивании скрипта" "$RED"
     exit_function
@@ -304,8 +292,6 @@ script_update() {
 
 if [ "$1" = "script_update" ]; then
   script_update "main"
-elif [ "$1" = "post_update" ]; then
-  post_update
 else
   main_menu
 fi
