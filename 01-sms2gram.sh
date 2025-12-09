@@ -9,7 +9,7 @@ PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SCRIPT="sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.4"
+SCRIPT_VERSION="v1.4.1"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 MODEM_PATTERN="UsbQmi[0-9]*|UsbLte[0-9]*"
 
@@ -122,6 +122,49 @@ get_sim_status() {
   done
   result=$(printf '%s' "$result" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   echo "$result"
+}
+
+format_timestamp() {
+  local raw="$1"
+  local mon_name day time year mon hh mm
+
+  if [ -z "$raw" ]; then
+    return
+  fi
+
+  set -- $raw
+  mon_name="$2"
+  day="$3"
+  time="$4"
+  year="$5"
+
+  case "$mon_name" in
+  Jan) mon="01" ;;
+  Feb) mon="02" ;;
+  Mar) mon="03" ;;
+  Apr) mon="04" ;;
+  May) mon="05" ;;
+  Jun) mon="06" ;;
+  Jul) mon="07" ;;
+  Aug) mon="08" ;;
+  Sep) mon="09" ;;
+  Oct) mon="10" ;;
+  Nov) mon="11" ;;
+  Dec) mon="12" ;;
+  *) mon="" ;;
+  esac
+
+  day=$(printf '%s' "$day" | sed 's/^[[:space:]]*//')
+  hh=${time%%:*}
+  mm=${time#*:}
+  mm=${mm%%:*}
+
+  if [ -z "$hh" ] || [ -z "$mm" ] || [ -z "$mon" ]; then
+    echo "$raw"
+    return
+  fi
+
+  printf '%02d.%s.%s %s:%s\n' "$day" "$mon" "$year" "$hh" "$mm"
 }
 
 mark_sms_read() {
@@ -444,6 +487,8 @@ send_pending_messages() {
     timestamp=$(echo "$message" | jq -r '.timestamp')
     iface=$(echo "$message" | jq -r '.interface')
 
+    timestamp=$(format_timestamp "$timestamp")
+
     log "Отправка сохранённого сообщения от $sender ($timestamp)..."
     if send_to_telegram "$sender" "$timestamp" "$text" "$iface"; then
       pending=$(echo "$pending" | jq --arg s "$sender" --arg t "$text" --arg ts "$timestamp" \
@@ -501,6 +546,8 @@ main() {
   sender=$(echo "$sms_json" | jq -r '.sender')
   text=$(echo "$sms_json" | jq -r '.text')
   timestamp=$(echo "$sms_json" | jq -r '.timestamp')
+
+  timestamp=$(format_timestamp "$timestamp")
 
   if is_at_command "$text"; then
     if send_at_command "$INTERFACE_ID" "$text"; then
