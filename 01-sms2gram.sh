@@ -9,7 +9,7 @@ PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SCRIPT="sms2gram.sh"
 PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.4.1"
+SCRIPT_VERSION="v1.4.2"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 MODEM_PATTERN="UsbQmi[0-9]*|UsbLte[0-9]*"
 
@@ -178,12 +178,6 @@ delete_sms() {
 check_symbolic_link() {
   if [ ! -f "$PATH_IFIPCHANGED" ]; then
     ln -s $PATH_SMSD $PATH_IFIPCHANGED
-  fi
-}
-
-internet_checker() {
-  if ! ping -c 2 -W 2 api.telegram.org >/dev/null 2>&1; then
-    error "Нет доступа к api.telegram.org или интернету. Проверьте подключение."
   fi
 }
 
@@ -360,10 +354,8 @@ send_to_telegram() {
     error "Не настроены BOT_TOKEN/CHAT_ID в конфиге. Отправка в Telegram пропущена."
     return 2
   fi
-  internet_checker
 
   escaped_text=$(echo "$text" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
-
   local message
   if [ -z "$sender" ] && [ -z "$timestamp" ]; then
     message="$escaped_text"
@@ -425,7 +417,7 @@ send_to_telegram() {
 
 save_pending_message() {
   local sms_json="$1"
-  local text
+  local text msg_id iface
 
   if ! echo "$sms_json" | jq empty 2>/dev/null; then
     error "Ошибка: Некорректный JSON: $sms_json"
@@ -440,6 +432,8 @@ save_pending_message() {
   fi
 
   sms_json=$(echo "$sms_json" | jq --arg iface "$INTERFACE_ID" '. + {interface: $iface}')
+  msg_id=$(echo "$sms_json" | jq -r '.message_id // empty')
+  iface=$(echo "$sms_json" | jq -r '.interface // empty')
   if [ ! -f "$PENDING_FILE" ] || [ ! -s "$PENDING_FILE" ]; then
     echo "[]" >"$PENDING_FILE"
   fi
@@ -452,6 +446,14 @@ save_pending_message() {
 
   local current_queue
   current_queue=$(cat "$PENDING_FILE")
+
+  if [ -n "$msg_id" ] && [ -n "$iface" ]; then
+    if echo "$current_queue" | jq -e --arg id "$msg_id" --arg iface "$iface" \
+      'any(.[]; .message_id == $id and .interface == $iface)' >/dev/null 2>&1; then
+      log "Сообщение уже есть в очереди (interface=$iface, message_id=$msg_id). Пропускаю добавление."
+      return
+    fi
+  fi
 
   local updated_queue
   updated_queue=$(echo "$current_queue" | jq --argjson msg "$sms_json" '. + [$msg]')
@@ -480,25 +482,45 @@ send_pending_messages() {
     return
   fi
 
-  echo "$pending" | jq -c '.[]' | while read -r message; do
-    local sender text timestamp iface
-    sender=$(echo "$message" | jq -r '.sender')
-    text=$(echo "$message" | jq -r '.text')
-    timestamp=$(echo "$message" | jq -r '.timestamp')
-    iface=$(echo "$message" | jq -r '.interface')
+  echo "$pending" | jq -c '.[]' | {
+    local seen_keys=""
+    while read -r message; do
+      local sender text timestamp_raw timestamp iface queue_len remaining msg_id key
+      sender=$(echo "$message" | jq -r '.sender')
+      text=$(echo "$message" | jq -r '.text')
+      timestamp_raw=$(echo "$message" | jq -r '.timestamp')
+      iface=$(echo "$message" | jq -r '.interface')
+      msg_id=$(echo "$message" | jq -r '.message_id // empty')
 
-    timestamp=$(format_timestamp "$timestamp")
+      if [ -n "$msg_id" ] && [ -n "$iface" ]; then
+        key="${iface}|${msg_id}"
+        case " $seen_keys " in
+          *" $key "*) continue ;;
+        esac
+        seen_keys="$seen_keys $key"
+      fi
 
-    log "Отправка сохранённого сообщения от $sender ($timestamp)..."
-    if send_to_telegram "$sender" "$timestamp" "$text" "$iface"; then
-      pending=$(echo "$pending" | jq --arg s "$sender" --arg t "$text" --arg ts "$timestamp" \
-        'del(.[] | select(.sender == $s and .text == $t and .timestamp == $ts))')
-      echo "$pending" >"$PENDING_FILE"
-    else
-      log "Не удалось отправить сообщение от $sender."
-    fi
-  done
+      timestamp=$(format_timestamp "$timestamp_raw")
+      queue_len=$(echo "$pending" | jq length)
+      remaining=$((queue_len - 1))
 
+      log "Отправка сохранённого сообщения от $sender ($timestamp) (в очереди $remaining)..."
+      if send_to_telegram "$sender" "$timestamp" "$text" "$iface"; then
+        if [ -n "$msg_id" ]; then
+          pending=$(echo "$pending" | jq --arg id "$msg_id" --arg iface "$iface" \
+            'del(.[] | select(.message_id == $id and .interface == $iface))')
+        else
+          pending=$(echo "$pending" | jq --arg s "$sender" --arg t "$text" --arg ts "$timestamp_raw" \
+            'del(.[] | select(.sender == $s and .text == $t and .timestamp == $ts))')
+        fi
+        echo "$pending" >"$PENDING_FILE"
+      else
+        log "Не удалось отправить сообщение от $sender."
+      fi
+    done
+  }
+
+  pending=$(cat "$PENDING_FILE")
   if [ "$(echo "$pending" | jq length)" -eq 0 ]; then
     echo "[]" >"$PENDING_FILE"
   fi
@@ -577,6 +599,7 @@ main() {
 
   if ! send_to_telegram "$sender" "$timestamp" "$text"; then
     if [ -n "${BOT_TOKEN:-}" ] && [ -n "${CHAT_ID:-}" ]; then
+      sms_json=$(echo "$sms_json" | jq --arg id "$MESSAGE_ID" '. + {message_id: $id}')
       save_pending_message "$sms_json"
     fi
   fi
