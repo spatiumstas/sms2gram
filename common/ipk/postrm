@@ -1,0 +1,25 @@
+#!/bin/sh
+
+SMS2GRAM_DIR="/opt/root/sms2gram"
+
+rm -f "/opt/bin/sms2gram"
+rm -f "/opt/var/log/sms2gram.log"
+rm -f "/opt/etc/ndm/sms.d/01-sms2gram.sh"
+rm -f "/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
+rm -f "/opt/etc/ndm/ifip6changed.d/01-sms2gram.sh"
+
+if [ -d "$SMS2GRAM_DIR" ]; then
+	if [ -z "$(ls -A "$SMS2GRAM_DIR" 2>/dev/null)" ]; then
+		rmdir "$SMS2GRAM_DIR" 2>/dev/null
+	elif [ -t 0 ]; then
+		printf "Удалить оставшиеся файлы в %s? [y/N]: " "$SMS2GRAM_DIR"
+		read answer
+		case "$answer" in
+			[Yy]*)
+				rm -rf "$SMS2GRAM_DIR"
+				;;
+		esac
+	fi
+fi
+
+exit 0

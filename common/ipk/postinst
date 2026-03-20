@@ -1,0 +1,29 @@
+#!/bin/sh
+
+SMS2GRAM_DIR="/opt/root/sms2gram"
+SMS_SCRIPT="$SMS2GRAM_DIR/sms2gram.sh"
+SMS_HOOK="$SMS2GRAM_DIR/01-sms2gram.sh"
+SMSD_LINK="/opt/etc/ndm/sms.d/01-sms2gram.sh"
+IFIPCHANGED_LINK="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
+IFIP6CHANGED_LINK="/opt/etc/ndm/ifip6changed.d/01-sms2gram.sh"
+BIN_LINK="/opt/bin/sms2gram"
+
+print_message() {
+  local message=$1
+  local color=${2:-$NC}
+  local border=$(printf '%0.s-' $(seq 1 $((${#message} + 2))))
+  printf "${color}\n+${border}+\n| ${message} |\n+${border}+\n${NC}\n"
+}
+
+mkdir -p "$SMS2GRAM_DIR"
+chmod +x "$SMS_SCRIPT" 2>/dev/null
+chmod +x "$SMS_HOOK" 2>/dev/null
+
+ln -sf "$SMS_SCRIPT" "$BIN_LINK"
+ln -sf "$SMS_HOOK" "$SMSD_LINK"
+ln -sf "$SMS_HOOK" "$IFIPCHANGED_LINK"
+ln -sf "$SMS_HOOK" "$IFIP6CHANGED_LINK"
+
+print_message "Пакет успешно установлен, для конфигурации запустите sms2gram"
+
+exit 0

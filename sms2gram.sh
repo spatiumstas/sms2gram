@@ -15,9 +15,9 @@ SMS2GRAM_DIR="/opt/root/sms2gram"
 LOG="/opt/var/log/sms2gram.log"
 SMSD="01-sms2gram.sh"
 PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
-PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
 CONFIG_FILE="$SMS2GRAM_DIR/config.sh"
 SCRIPT_VERSION=$(grep -oP 'SCRIPT_VERSION="\K[^"]+' "$SMS2GRAM_DIR/$SMSD")
+SMS2GRAM_REPO_FILE="/opt/etc/opkg/sms2gram.conf"
 
 print_menu() {
   printf "\033c"
@@ -37,7 +37,6 @@ EOF
   echo "3. Вывести конфигурацию"
   echo "4. Вывести логи"
   echo ""
-  echo "77. Удалить файлы"
   echo "99. Обновить скрипт"
   echo "00. Выход"
   echo ""
@@ -57,7 +56,6 @@ main_menu() {
     2) test_message_send ;;
     3) show_config ;;
     4) show_logs ;;
-    77) remove_script ;;
     99) script_update "main" ;;
     999) script_update "dev" ;;
     00) exit ;;
@@ -106,12 +104,17 @@ update_config_value() {
   local prompt="$1"
   local key="$2"
   local value
+  local key_exists=0
+
+  if grep -q "^$key=" "$CONFIG_FILE"; then
+    key_exists=1
+  fi
 
   read -p "$prompt" value
   value=$(echo "$value" | sed 's/^[ \t]*//;s/[ \t]*$//')
 
   if [ "$value" = "-" ]; then
-    if grep -q "^$key=" "$CONFIG_FILE"; then
+    if [ "$key_exists" -eq 1 ]; then
       sed -i "s|^$key=.*|$key=\"\"|" "$CONFIG_FILE"
     else
       echo "$key=\"\"" >>"$CONFIG_FILE"
@@ -120,35 +123,20 @@ update_config_value() {
   fi
 
   if [ -n "$value" ]; then
-    if grep -q "^$key=" "$CONFIG_FILE"; then
+    if [ "$key_exists" -eq 1 ]; then
       sed -i "s|^$key=.*|$key=\"$value\"|" "$CONFIG_FILE"
     else
       echo "$key=\"$value\"" >>"$CONFIG_FILE"
     fi
+  elif [ "$key_exists" -eq 0 ]; then
+    echo "$key=\"\"" >>"$CONFIG_FILE"
   fi
 }
 
 setup_config() {
   if [ ! -f "$CONFIG_FILE" ]; then
-    print_message "Конфигурационный файл не найден, создаём его..." "$CYAN"
-    mkdir -p "$SMS2GRAM_DIR"
-    cat <<EOL >"$CONFIG_FILE"
-LOG_FILE="/opt/var/log/sms2gram.log"
-PENDING_FILE="$SMS2GRAM_DIR/pending_messages.json"
-MARK_READ_MESSAGE_AFTER_SEND="0"
-DELETE_MESSAGE_AFTER_SEND="0"
-REBOOT_KEY=""
-BLACK_LIST=""
-WHITE_LIST=""
-TEXT_BLACK_LIST=""
-TEXT_WHITE_LIST=""
-AT_COMMANDS_ENABLED="0"
-DEBUG="0"
-REBOOT_SIM_IF_INVALID="0"
-BOT_TOKEN=""
-CHAT_ID=""
-
-EOL
+    print_message "Конфигурационный файл не найден: $CONFIG_FILE. Переустановите пакет" "$RED"
+    exit_function
   fi
   if [ ! -f "$SMS2GRAM_DIR/$SMSD" ]; then
     curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/main/$SMSD" --output "$SMS2GRAM_DIR/$SMSD"
@@ -158,6 +146,10 @@ EOL
 
   update_config_value "Введите токен бота Telegram (пусто — без изменений, '-' — очистить): " "BOT_TOKEN"
   update_config_value "Введите ID пользователя/чата Telegram (пусто — без изменений, '-' — очистить): " "CHAT_ID"
+  update_config_value "Введите токен бота VK (пусто — без изменений, '-' — очистить): " "VK_TOKEN"
+  update_config_value "Введите ID пользователя/чата ВКонтакте (пусто — без изменений, '-' — очистить): " "VK_CHAT_ID"
+  update_config_value "Введите номер для SMS-переадресации (пусто — без изменений, '-' — очистить): " "SMS_FORWARD_TO"
+  update_config_value "Введите прокси-интерфейс, например nwg0 (пусто — без изменений, '-' — очистить): " "PROXY_INTERFACE"
   update_config_value "Помечать сообщение прочитанным после успешной отправки? (1 - да, 0 - нет): " "MARK_READ_MESSAGE_AFTER_SEND"
   update_config_value "Удалять сообщение после успешной отправки? (1 - да, 0 - нет): " "DELETE_MESSAGE_AFTER_SEND"
   update_config_value "Каким словом в SMS перезагружать устройство? (пусто — без изменений, '-' — очистить): " "REBOOT_KEY"
@@ -170,7 +162,6 @@ EOL
   update_config_value "Включить отладку? (1 - да, 0 - нет): " "DEBUG"
 
   dos2unix "$CONFIG_FILE"
-
   print_message "Конфигурация сохранена в $CONFIG_FILE" "$GREEN"
   exit_function
 }
@@ -188,28 +179,34 @@ show_logs() {
   exit_function
 }
 
-remove_script() {
-  echo "Удаляю директорию $SMS2GRAM_DIR..."
-  rm -rf "$SMS2GRAM_DIR" 2>/dev/null
-
-  echo "Удаляю файл $PATH_SMSD..."
-  rm -r "$PATH_SMSD" 2>/dev/null
-
-  echo "Удаляю файл $PATH_IFIPCHANGED..."
-  rm -r "$PATH_IFIPCHANGED" 2>/dev/null
-
-  echo "Удаляю файл $OPT_DIR/bin/sms2gram..."
-  rm -r "$OPT_DIR/bin/sms2gram" 2>/dev/null
-
-  print_message "Успешно удалено" "$GREEN"
-  exit_function
-}
-
 packages_checker() {
   if ! opkg list-installed | grep -q "^curl" || ! opkg list-installed | grep -q "^jq"; then
     opkg update && opkg install curl jq
     echo ""
   fi
+}
+
+is_ipk_installed() {
+  [ -n "$(opkg status "$REPO" 2>/dev/null)" ]
+}
+
+ensure_ipk_repo_file() {
+  if [ -f "$SMS2GRAM_REPO_FILE" ]; then
+    return 0
+  fi
+  print_message "Добавляю репозиторий для установки через OPKG..."
+  mkdir -p /opt/etc/opkg
+  echo "src/gz $REPO https://spatiumstas.github.io/$REPO/all" >"$SMS2GRAM_REPO_FILE"
+}
+
+migrate_to_ipk_if_needed() {
+  if is_ipk_installed; then
+    return
+  fi
+
+  ensure_ipk_repo_file || return
+  print_message "Устанавливаю пакет через OPKG..."
+  opkg update && opkg install "$REPO"
 }
 
 test_message_send() {
@@ -266,6 +263,19 @@ test_message_send() {
 script_update() {
   BRANCH="$1"
   packages_checker
+
+  if is_ipk_installed; then
+    ensure_ipk_repo_file
+    if opkg update && opkg install "$REPO"; then
+      print_message "Пакет обновлён через OPKG" "$GREEN"
+    else
+      print_message "Не удалось обновить пакет через OPKG" "$RED"
+    fi
+    sleep 1
+    exec "$SMS2GRAM_DIR/$SCRIPT"
+    return
+  fi
+
   curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SCRIPT" --output $TMP_DIR/$SCRIPT
   curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SMSD" --output "$SMS2GRAM_DIR/$SMSD"
   chmod +x "$SMS2GRAM_DIR/$SMSD"
@@ -283,7 +293,7 @@ script_update() {
       print_message "Скрипт успешно обновлён" "$GREEN"
     fi
     sleep 1
-    "$SMS2GRAM_DIR/$SCRIPT"
+    exec "$SMS2GRAM_DIR/$SCRIPT"
   else
     print_message "Ошибка при скачивании скрипта" "$RED"
     exit_function
@@ -293,5 +303,6 @@ script_update() {
 if [ "$1" = "script_update" ]; then
   script_update "main"
 else
+  migrate_to_ipk_if_needed
   main_menu
 fi
