@@ -5,13 +5,13 @@ export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
 INTERFACE_ID="$interface_id"
 IP_ID="$id"
 MESSAGE_ID="$message_id"
-PATH_SMSD="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SCRIPT="sms2gram.sh"
-PATH_IFIPCHANGED="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
-SCRIPT_VERSION="v1.4.2"
+SCRIPT_VERSION="1.5.1"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 MODEM_PATTERN="UsbQmi[0-9]*|UsbLte[0-9]*"
+VK_API_VERSION="5.199"
+SMS_FORWARD_LIMIT=250
 
 if [ "${DEBUG:-0}" = "1" ]; then
   exec 19>$LOG_FILE
@@ -26,6 +26,14 @@ rci() {
     curl -s --header "Content-Type: application/json" --request POST --data "$body" http://localhost:79/rci/
   else
     curl -s "http://localhost:79/rci/$endpoint"
+  fi
+}
+
+curl_with_proxy() {
+  if [ -n "${PROXY_INTERFACE:-}" ]; then
+    curl -s --interface "$PROXY_INTERFACE" "$@"
+  else
+    curl -s "$@"
   fi
 }
 
@@ -62,6 +70,28 @@ set_header() {
   fi
 }
 
+build_notification_message() {
+  local sender="$1"
+  local timestamp="$2"
+  local text="$3"
+  local iface="$4"
+  local style="${5:-plain}"
+  local template="%s\n\nСообщение от: %s\nДата: %s\n\nТекст: %s"
+
+  if [ -z "$sender" ] && [ -z "$timestamp" ]; then
+    printf '%s' "$text"
+    return
+  fi
+
+  if [ "$style" = "html" ]; then
+    template="%s\n\n<b>Сообщение от:</b> %s\n<b>Дата:</b> %s\n\n<b>Текст:</b> %s"
+  fi
+
+  local header
+  header=$(set_header "$iface")
+  printf "$template" "$header" "$sender" "$timestamp" "$text"
+}
+
 is_at_command() {
   local text="$1"
   echo "$text" | grep -Eiq '^[[:space:]]*at'
@@ -87,7 +117,7 @@ send_at_command() {
   header=$(set_header "$iface")
 
   reply=$(printf "%s\n\nСообщение от: %s\nДата: %s\nAT-команда: %s\nИнтерфейс: %s\nОтвет модема:\n\n%s" "$header" "$sender" "$timestamp" "$cmd" "$iface" "$output")
-  send_to_telegram "" "" "$reply" "$iface"
+  send_notification "" "" "$reply" "$iface"
   rc=$?
   if [ $rc -ne 0 ]; then
     local at_json pending_text
@@ -175,12 +205,6 @@ delete_sms() {
   rci "" "[{\"sms\":{\"delete\":[{\"interface\":\"$INTERFACE_ID\",\"id\":\"$MESSAGE_ID\"}]}}]" >/dev/null 2>&1
 }
 
-check_symbolic_link() {
-  if [ ! -f "$PATH_IFIPCHANGED" ]; then
-    ln -s $PATH_SMSD $PATH_IFIPCHANGED
-  fi
-}
-
 check_sim_card() {
   if [ "${REBOOT_SIM_IF_INVALID:-0}" = "0" ] || [ -z "$IP_ID" ]; then
     return
@@ -214,7 +238,7 @@ check_black_list() {
   fi
 
   if printf '%s\n' "$normalized" | grep -Fx -- "$sender" >/dev/null 2>&1; then
-    log "Отправитель $sender в чёрном списке. Удаляю SMS и пропускаю отправку в Telegram."
+    log "Отправитель $sender в чёрном списке. Удаляю SMS и пропускаю отправку уведомления."
     delete_sms
     exit
   fi
@@ -234,7 +258,7 @@ check_white_list() {
   fi
 
   if ! printf '%s\n' "$normalized" | grep -Fx -- "$sender" >/dev/null 2>&1; then
-    log "Отправитель $sender не в белом списке. Пропускаю отправку в Telegram."
+    log "Отправитель $sender не в белом списке. Пропускаю отправку уведомления."
     exit
   fi
 }
@@ -254,7 +278,7 @@ check_text_black_list() {
 
   while IFS= read -r pattern; do
     if echo "$text" | grep -Fqi -- "$pattern"; then
-      log "Текст сообщения соответствует чёрному списку по шаблону '$pattern'. Удаляю SMS и пропускаю отправку в Telegram."
+      log "Текст сообщения соответствует чёрному списку по шаблону '$pattern'. Удаляю SMS и пропускаю отправку уведомления."
       delete_sms
       exit
     fi
@@ -340,6 +364,42 @@ parse_sms() {
     '{"sender": $sender, "timestamp": $timestamp, "text": $text}'
 }
 
+is_telegram_enabled() {
+  [ -n "${BOT_TOKEN:-}" ] && [ -n "${CHAT_ID:-}" ]
+}
+
+is_vk_enabled() {
+  [ -n "${VK_TOKEN:-}" ] && [ -n "${VK_CHAT_ID:-}" ]
+}
+
+is_sms_forward_enabled() {
+  [ -n "${SMS_FORWARD_TO:-}" ]
+}
+
+text_len_chars() {
+  local text="$1"
+  printf '%s' "$text" | jq -R -s 'explode | length'
+}
+
+truncate_text_chars() {
+  local text="$1"
+  local max_chars="$2"
+  printf '%s' "$text" | jq -R -r -s --argjson n "$max_chars" 'explode | .[:$n] | implode'
+}
+
+has_active_notifier() {
+  is_telegram_enabled || is_vk_enabled || is_sms_forward_enabled
+}
+
+finalize_delivery() {
+  if [ "$MARK_READ_MESSAGE_AFTER_SEND" = "1" ] && [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
+    mark_sms_read
+  fi
+  if [ "$DELETE_MESSAGE_AFTER_SEND" = "1" ] && [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
+    delete_sms
+  fi
+}
+
 send_to_telegram() {
   local sender="$1"
   local timestamp="$2"
@@ -349,22 +409,10 @@ send_to_telegram() {
   local retry_count=0
   local max_retries=3
   local retry_delay=5
-
-  if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
-    error "Не настроены BOT_TOKEN/CHAT_ID в конфиге. Отправка в Telegram пропущена."
-    return 2
-  fi
+  local message
 
   escaped_text=$(echo "$text" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
-  local message
-  if [ -z "$sender" ] && [ -z "$timestamp" ]; then
-    message="$escaped_text"
-  else
-    local header
-    header=$(set_header "$iface")
-    message=$(printf "%s\n\n<b>Сообщение от:</b> %s\n<b>Дата:</b> %s\n\n<b>Текст:</b> %s" \
-      "$header" "$sender" "$timestamp" "$escaped_text")
-  fi
+  message=$(build_notification_message "$sender" "$timestamp" "$escaped_text" "$iface" "html")
 
   local chat_id="${CHAT_ID%%_*}"
   local topic_id="${CHAT_ID#*_}"
@@ -384,23 +432,17 @@ send_to_telegram() {
 
   while [ $retry_count -lt $max_retries ]; do
     local response
-    response=$(curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+    response=$(curl_with_proxy -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
       -H "Content-Type: application/json" \
       -d "$payload")
 
     if [ -z "$response" ]; then
-      error "Ошибка отправки в Telegram: Пустой ответ, выполните обновление всех пакетов или переустановите Entware"
+      error "Ошибка отправки в Telegram: Пустой ответ сервера, задайте прокси-интерфейс для подключения"
       return 1
     fi
 
     if echo "$response" | grep -q '"ok":true'; then
-      log "Сообщение успешно отправлено."
-      if [ "$MARK_READ_MESSAGE_AFTER_SEND" = "1" ] && [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
-        mark_sms_read
-      fi
-      if [ "$DELETE_MESSAGE_AFTER_SEND" = "1" ] && [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
-        delete_sms
-      fi
+      log "Сообщение успешно отправлено в Telegram."
       return 0
     else
       error "Ошибка отправки в Telegram: $response"
@@ -413,6 +455,143 @@ send_to_telegram() {
   done
 
   return 1
+}
+
+send_to_vk() {
+  local sender="$1"
+  local timestamp="$2"
+  local text="$3"
+  local iface="$4"
+  local peer_id
+  local retry_count=0
+  local max_retries=3
+  local retry_delay=5
+  local message
+
+  peer_id=$(printf '%s' "${VK_CHAT_ID:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  if ! printf '%s' "$peer_id" | grep -Eq '^[0-9]+$'; then
+    error "Некорректный VK_CHAT_ID='${VK_CHAT_ID:-}'."
+    return 2
+  fi
+
+  message=$(build_notification_message "$sender" "$timestamp" "$text" "$iface")
+
+  while [ $retry_count -lt $max_retries ]; do
+    local response
+
+    response=$(curl_with_proxy -X POST "https://api.vk.com/method/messages.send" \
+      --data-urlencode "access_token=$VK_TOKEN" \
+      --data-urlencode "v=$VK_API_VERSION" \
+      --data-urlencode "peer_id=$peer_id" \
+      --data-urlencode "random_id=0" \
+      --data-urlencode "message=$message")
+
+    if [ -z "$response" ]; then
+      error "Ошибка отправки VK: Пустой ответ сервера, задайте прокси-интерфейс для подключения"
+      return 1
+    fi
+
+    if echo "$response" | jq -e '.response' >/dev/null 2>&1; then
+      log "Сообщение успешно отправлено VK."
+      return 0
+    else
+      error "Ошибка отправки VK: $response"
+      retry_count=$((retry_count + 1))
+      if [ $retry_count -lt $max_retries ]; then
+        log "Повторная попытка отправки через $retry_delay секунд... (попытка $retry_count из $max_retries)"
+        sleep $retry_delay
+      fi
+    fi
+  done
+
+  return 1
+}
+
+send_to_sms_forward() {
+  local sender="$1"
+  local timestamp="$2"
+  local text="$3"
+  local iface="$4"
+  local to
+  local sms_iface
+  local base_message
+  local message_len
+  local message
+  local payload
+  local response
+
+  to=$(printf '%s' "${SMS_FORWARD_TO:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+  if [ -z "$to" ]; then
+    return 2
+  fi
+
+  sms_iface="${iface:-$INTERFACE_ID}"
+
+  if [ -z "$sms_iface" ]; then
+    error "Не задан интерфейс для SMS-переадресации."
+    return 2
+  fi
+
+  base_message=$(build_notification_message "$sender" "$timestamp" "$text" "$sms_iface")
+  message="$base_message"
+  message_len=$(text_len_chars "$base_message")
+  if [ "$message_len" -gt "$SMS_FORWARD_LIMIT" ]; then
+    message=$(truncate_text_chars "$base_message" "$SMS_FORWARD_LIMIT")
+    log "SMS-переадресация: сообщение обрезано до ~$SMS_FORWARD_LIMIT символов."
+  fi
+
+  payload=$(jq -n --arg iface "$sms_iface" --arg to "$to" --arg message "$message" \
+    '[{"sms":{"send":{"interface":$iface,"to":$to,"message":$message}}}]')
+
+  response=$(rci "" "$payload")
+  if [ -z "$response" ]; then
+    error "Ошибка SMS-переадресации: Пустой ответ RCI"
+    return 1
+  fi
+
+  if echo "$response" | grep -qi 'error'; then
+    error "Ошибка SMS-переадресации: $response"
+    return 1
+  fi
+
+  log "Сообщение успешно переслано на $to через $sms_iface."
+  return 0
+}
+
+send_to_channel() {
+  local enabled_fn="$1"
+  local sender_fn="$2"
+  local sender="$3"
+  local timestamp="$4"
+  local text="$5"
+  local iface="$6"
+
+  if "$enabled_fn"; then
+    attempted=$((attempted + 1))
+    if "$sender_fn" "$sender" "$timestamp" "$text" "$iface"; then
+      success=0
+    fi
+  fi
+}
+
+send_notification() {
+  local sender="$1"
+  local timestamp="$2"
+  local text="$3"
+  local iface="$4"
+  local attempted=0
+  local success=1
+
+  send_to_channel is_telegram_enabled send_to_telegram "$sender" "$timestamp" "$text" "$iface"
+  send_to_channel is_vk_enabled send_to_vk "$sender" "$timestamp" "$text" "$iface"
+  send_to_channel is_sms_forward_enabled send_to_sms_forward "$sender" "$timestamp" "$text" "$iface"
+
+  if [ $attempted -eq 0 ]; then
+    error "Не настроены каналы уведомлений. Укажите BOT_TOKEN и/или VK_TOKEN и/или SMS_FORWARD_TO в конфигурации."
+    return 2
+  fi
+
+  return $success
 }
 
 save_pending_message() {
@@ -467,7 +646,7 @@ save_pending_message() {
 }
 
 send_pending_messages() {
-  if [ -z "${BOT_TOKEN:-}" ] || [ -z "${CHAT_ID:-}" ]; then
+  if ! has_active_notifier; then
     return
   fi
   if [ ! -f "$PENDING_FILE" ] || [ ! -s "$PENDING_FILE" ]; then
@@ -505,7 +684,7 @@ send_pending_messages() {
       remaining=$((queue_len - 1))
 
       log "Отправка сохранённого сообщения от $sender ($timestamp) (в очереди $remaining)..."
-      if send_to_telegram "$sender" "$timestamp" "$text" "$iface"; then
+      if send_notification "$sender" "$timestamp" "$text" "$iface"; then
         if [ -n "$msg_id" ]; then
           pending=$(echo "$pending" | jq --arg id "$msg_id" --arg iface "$iface" \
             'del(.[] | select(.message_id == $id and .interface == $iface))')
@@ -531,7 +710,6 @@ main() {
   local sms_json
   local sender text timestamp
   clean_log
-  check_symbolic_link
 
   if [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
     log "Запуск скрипта. INTERFACE_ID=$INTERFACE_ID, MESSAGE_ID=$MESSAGE_ID"
@@ -540,7 +718,7 @@ main() {
   send_pending_messages
   if [ $# -gt 1 ]; then
     local CUSTOM_MESSAGE="$2"
-    send_to_telegram "" "" "$CUSTOM_MESSAGE"
+    send_notification "" "" "$CUSTOM_MESSAGE"
     return
   fi
 
@@ -591,17 +769,19 @@ main() {
   check_white_list "$sender"
   check_text_black_list "$text"
   if ! check_text_white_list "$text"; then
-    log "Текст сообщения не соответствует белому списку. Удаляю SMS и пропускаю отправку в Telegram."
+    log "Текст сообщения не соответствует белому списку. Удаляю SMS и пропускаю отправку уведомления."
     delete_sms
     exit
   fi
   check_reboot_key "$text"
 
-  if ! send_to_telegram "$sender" "$timestamp" "$text"; then
-    if [ -n "${BOT_TOKEN:-}" ] && [ -n "${CHAT_ID:-}" ]; then
+  if ! send_notification "$sender" "$timestamp" "$text"; then
+    if has_active_notifier; then
       sms_json=$(echo "$sms_json" | jq --arg id "$MESSAGE_ID" '. + {message_id: $id}')
       save_pending_message "$sms_json"
     fi
+  else
+    finalize_delivery
   fi
 
   if [ "${DEBUG:-0}" = "1" ]; then
@@ -615,7 +795,7 @@ check_update() {
 
   if [ "$remote_num" -gt "$local_num" ]; then
     log "Доступна новая версия: $REMOTE_VERSION. Обновляюсь..."
-    "$SMS2GRAM_DIR/$SCRIPT" "script_update"
+    exec "$SMS2GRAM_DIR/$SCRIPT" "script_update"
   fi
 }
 
