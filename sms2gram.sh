@@ -23,13 +23,12 @@ print_menu() {
   printf "\033c"
   printf "${CYAN}"
   cat <<'EOF'
-                    ____
-  ___ _ __ ___  ___|___ \ __ _ _ __ __ _ _ __ ___
- / __| '_ ` _ \/ __| __) / _` | '__/ _` | '_ ` _ \
- \__ \ | | | | \__ \/ __/ (_| | | | (_| | | | | | |
- |___/_| |_| |_|___/_____\__, |_|  \__,_|_| |_| |_|
-                         |___/
-
+                       ___                           
+   _________ ___  ____|__ \____ __________ _____ ___ 
+  / ___/ __ `__ \/ ___/_/ / __ `/ ___/ __ `/ __ `__ \
+ (__  ) / / / / (__  ) __/ /_/ / /  / /_/ / / / / / /
+/____/_/ /_/ /_/____/____|__, /_/   \__,_/_/ /_/ /_/ 
+                        /____/                       
 EOF
   printf "${RED}Версия скрипта:\t${NC}%s\n\n" "$SCRIPT_VERSION by ${USERNAME}"
   echo "1. Настроить конфигурацию"
@@ -53,12 +52,11 @@ main_menu() {
   else
     case "$choice" in
     1) setup_config ;;
-    2) test_message_send ;;
+    2) send_test_message ;;
     3) show_config ;;
     4) show_logs ;;
-    99) script_update "main" ;;
-    999) script_update "dev" ;;
-    00) exit ;;
+    99) script_update ;;
+    00) exit 0 ;;
     *)
       echo "Неверный выбор. Попробуйте снова."
       sleep 1
@@ -76,6 +74,7 @@ print_message() {
 }
 
 exit_function() {
+  echo ""
   read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
   main_menu
 }
@@ -150,8 +149,9 @@ setup_config() {
   update_config_value "Введите ID пользователя/чата ВКонтакте (пусто — без изменений, '-' — очистить): " "VK_CHAT_ID"
   update_config_value "Введите номер для SMS-переадресации (пусто — без изменений, '-' — очистить): " "SMS_FORWARD_TO"
   update_config_value "Введите прокси-интерфейс, например nwg0 (пусто — без изменений, '-' — очистить): " "PROXY_INTERFACE"
-  update_config_value "Помечать сообщение прочитанным после успешной отправки? (1 - да, 0 - нет): " "MARK_READ_MESSAGE_AFTER_SEND"
-  update_config_value "Удалять сообщение после успешной отправки? (1 - да, 0 - нет): " "DELETE_MESSAGE_AFTER_SEND"
+  update_config_value "Введите прокси-ссылку, например socks5:// (пусто — без изменений, '-' — очистить): " "PROXY_URL"
+  update_config_value "Помечать сообщение прочитанным после отправки? (1 - да, 0 - нет): " "MARK_READ_MESSAGE_AFTER_SEND"
+  update_config_value "Удалять сообщение после отправки? (1 - да, 0 - нет): " "DELETE_MESSAGE_AFTER_SEND"
   update_config_value "Каким словом в SMS перезагружать устройство? (пусто — без изменений, '-' — очистить): " "REBOOT_KEY"
   update_config_value "Черный список отправителей через запятую (пусто — без изменений, '-' — очистить): " "BLACK_LIST"
   update_config_value "Белый список отправителей через запятую (пусто — без изменений, '-' — очистить): " "WHITE_LIST"
@@ -175,7 +175,6 @@ show_config() {
 
 show_logs() {
   cat "$LOG"
-  echo ""
   exit_function
 }
 
@@ -223,99 +222,32 @@ migrate_to_ipk_if_needed() {
   packages_checker "curl jq ca-certificates wget-ssl sms2gram" 
 }
 
-test_message_send() {
+send_test_message() {
   if [ ! -f "$CONFIG_FILE" ]; then
     print_message "Выполните настройку скрипта" "$RED"
     exit_function
   fi
 
-  interfaces_list=$(ndmc -c show interface | grep -A 4 -E "Usb" | grep -v "usbdsl" | grep "id:" | awk '{print NR ") " $2}')
-
-  if [ -z "$interfaces_list" ]; then
-    print_message "Не найдено подключённых модемов" "$RED"
-    exit_function
-  fi
-
-  echo "$interfaces_list"
-  echo ""
-  read -p "Выберите интерфейс для тестового сообщения: " choices
-  echo ""
-
-  interfaces=""
-  for choice in $choices; do
-    interface=$(echo "$interfaces_list" | awk -v choice="$choice" 'NR == choice {print $2}')
-    if [ -n "$interface" ]; then
-      interfaces="$interfaces $interface"
-    else
-      print_message "Интерфейс с номером $choice не найден" "$RED"
-      exit_function
-    fi
-  done
-
-  if [ -n "$interfaces" ]; then
-    interfaces=$(echo "$interfaces" | sed 's/^[ \t]*//;s/[ \t]*$//')
-  else
-    print_message "Не выбран интерфейс" "$RED"
-    exit_function
-  fi
-  selected_interface=$(echo "$interfaces" | awk '{print $1}')
-  echo "Выбран интерфейс: $selected_interface"
-
-  get_message_id=$(ndmc -c sms "$selected_interface" list | grep -o "nv-[0-9]\+\|sim-[0-9]\+" | head -n 1)
-
-  if [ -n "$get_message_id" ]; then
-    echo ""
-    interface_id="$selected_interface" message_id="$get_message_id" "$SMS2GRAM_DIR/$SMSD"
-  else
-    print_message "На модеме $selected_interface нет SMS для отправки. Отправляю тестовое" "$CYAN"
-    "$SMS2GRAM_DIR/$SMSD" "" "Тестовое сообщение от SMS2GRAM"
-  fi
-  echo ""
+  print_message "Отправляю тестовое сообщение" "$CYAN"
+  "$SMS2GRAM_DIR/$SMSD" "" "Тестовое сообщение от SMS2GRAM"
   exit_function
 }
 
 script_update() {
-  BRANCH="$1"
   packages_checker "curl jq ca-certificates wget-ssl"
 
-  if is_ipk_installed; then
-    ensure_ipk_repo_file
-    if opkg update && opkg install "$REPO"; then
-      print_message "Пакет обновлён через OPKG" "$GREEN"
-    else
-      print_message "Не удалось обновить пакет через OPKG" "$RED"
-    fi
-    sleep 1
-    exec "$SMS2GRAM_DIR/$SCRIPT"
-    return
-  fi
-
-  curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SCRIPT" --output $TMP_DIR/$SCRIPT
-  curl -L -s "https://raw.githubusercontent.com/$USERNAME/$REPO/$BRANCH/$SMSD" --output "$SMS2GRAM_DIR/$SMSD"
-  chmod +x "$SMS2GRAM_DIR/$SMSD"
-  ln -sf "$SMS2GRAM_DIR/$SMSD" "$PATH_SMSD"
-
-  if [ -f "$TMP_DIR/$SCRIPT" ]; then
-    mv "$TMP_DIR/$SCRIPT" "$SMS2GRAM_DIR/$SCRIPT"
-    chmod +x "$SMS2GRAM_DIR/$SCRIPT"
-    if [ ! -f "$OPT_DIR/bin/sms2gram" ]; then
-      ln -s "$SMS2GRAM_DIR/$SCRIPT" "$OPT_DIR/bin/sms2gram"
-    fi
-    if [ "$BRANCH" = "dev" ]; then
-      print_message "Скрипт успешно обновлён на $BRANCH ветку..." "$GREEN"
-    else
-      print_message "Скрипт успешно обновлён" "$GREEN"
-    fi
-    sleep 1
-    exec "$SMS2GRAM_DIR/$SCRIPT"
+  ensure_ipk_repo_file
+  if opkg update && opkg install "$REPO"; then
+    print_message "Пакет обновлён" "$GREEN"
   else
-    print_message "Ошибка при скачивании скрипта" "$RED"
-    exit_function
+    print_message "Не удалось обновить пакет. Выполните обновление вручную." "$RED"
   fi
+  sleep 1
+  exec "$SMS2GRAM_DIR/$SCRIPT"
 }
 
 if [ "$1" = "script_update" ]; then
-  script_update "main"
+  script_update
 else
   migrate_to_ipk_if_needed
   main_menu

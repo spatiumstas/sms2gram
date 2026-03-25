@@ -7,7 +7,7 @@ IP_ID="$id"
 MESSAGE_ID="$message_id"
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SCRIPT="sms2gram.sh"
-SCRIPT_VERSION="1.5.1"
+SCRIPT_VERSION=""
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 MODEM_PATTERN="UsbQmi[0-9]*|UsbLte[0-9]*"
 VK_API_VERSION="5.199"
@@ -32,6 +32,8 @@ rci() {
 curl_with_proxy() {
   if [ -n "${PROXY_INTERFACE:-}" ]; then
     curl -s --interface "$PROXY_INTERFACE" "$@"
+  elif [ -n "${PROXY_URL:-}" ]; then
+    curl -s -x "$PROXY_URL" "$@"
   else
     curl -s "$@"
   fi
@@ -156,9 +158,19 @@ get_sim_status() {
 
 format_timestamp() {
   local raw="$1"
-  local mon_name day time year mon hh mm
+  local mon_name day time year mon hh mm ss
+  local y2 m2 d2 t2
 
   if [ -z "$raw" ]; then
+    return
+  fi
+
+  if printf '%s' "$raw" | grep -Eq '^[0-9]{2}-[0-9]{2}-[0-9]{2}[[:space:]][0-9]{2}:[0-9]{2}(:[0-9]{2})?$'; then
+    y2=$(printf '%s' "$raw" | cut -d' ' -f1 | cut -d'-' -f1)
+    m2=$(printf '%s' "$raw" | cut -d' ' -f1 | cut -d'-' -f2)
+    d2=$(printf '%s' "$raw" | cut -d' ' -f1 | cut -d'-' -f3)
+    t2=$(printf '%s' "$raw" | cut -d' ' -f2)
+    printf '%s.%s.%s %s\n' "$d2" "$m2" "$y2" "$t2"
     return
   fi
 
@@ -187,6 +199,7 @@ format_timestamp() {
   day=$(printf '%s' "$day" | sed 's/^[[:space:]]*//')
   hh=${time%%:*}
   mm=${time#*:}
+  ss=${mm#*:}
   mm=${mm%%:*}
 
   if [ -z "$hh" ] || [ -z "$mm" ] || [ -z "$mon" ]; then
@@ -194,14 +207,20 @@ format_timestamp() {
     return
   fi
 
-  printf '%02d.%s.%s %s:%s\n' "$day" "$mon" "$year" "$hh" "$mm"
+  printf '%02d.%s.%s %s:%s:%s\n' "$day" "$mon" "$year" "$hh" "$mm" "$ss"
 }
 
 mark_sms_read() {
+  if [ -z "$INTERFACE_ID" ] || [ -z "$MESSAGE_ID" ]; then
+    return
+  fi
   rci "" "[{\"sms\":{\"read\":[{\"interface\":\"$INTERFACE_ID\",\"id\":\"$MESSAGE_ID\"}]}}]" >/dev/null 2>&1
 }
 
 delete_sms() {
+  if [ -z "$INTERFACE_ID" ] || [ -z "$MESSAGE_ID" ]; then
+    return
+  fi
   rci "" "[{\"sms\":{\"delete\":[{\"interface\":\"$INTERFACE_ID\",\"id\":\"$MESSAGE_ID\"}]}}]" >/dev/null 2>&1
 }
 
@@ -364,6 +383,78 @@ parse_sms() {
     '{"sender": $sender, "timestamp": $timestamp, "text": $text}'
 }
 
+parse_smstools3() {
+  local sms_file="$1"
+  local sender timestamp text
+
+  sender=$(grep -m1 '^From:' "$sms_file" | sed 's/^From:[[:space:]]*//')
+  timestamp=$(grep -m1 '^Received:' "$sms_file" | sed 's/^Received:[[:space:]]*//')
+  timestamp=$(format_timestamp "$timestamp")
+  text=$(sed -e '1,/^$/d' "$sms_file")
+
+  jq -n --arg sender "$sender" --arg timestamp "$timestamp" --arg text "$text" \
+    '{"sender": $sender, "timestamp": $timestamp, "text": $text}'
+}
+
+is_ipk_installed() {
+  [ -n "$(opkg status "$1" 2>/dev/null)" ]
+}
+
+process_incoming_message() {
+  local sender="$1"
+  local timestamp="$2"
+  local text="$3"
+  local sms_json="$4"
+  local finalize_on_success="${5:-0}"
+
+  if [ -z "$text" ]; then
+    error "Получено пустое или несуществующее сообщение"
+    return
+  fi
+
+  log "Получено сообщение от $sender: $text"
+
+  check_black_list "$sender"
+  check_white_list "$sender"
+  check_text_black_list "$text"
+  if ! check_text_white_list "$text"; then
+    log "Текст сообщения не соответствует белому списку. Удаляю SMS и пропускаю отправку уведомления."
+    delete_sms
+    exit
+  fi
+  check_reboot_key "$text"
+
+  if ! send_notification "$sender" "$timestamp" "$text"; then
+    if has_active_notifier; then
+      save_pending_message "$sms_json"
+    fi
+  elif [ "$finalize_on_success" = "1" ]; then
+    finalize_delivery
+  fi
+}
+
+handle_smstools3() {
+  local sms_file="$1"
+  local sms_json sender text timestamp
+
+  if [ ! -f "$sms_file" ]; then
+    error "smstools3: файл сообщения не найден: $sms_file"
+    return
+  fi
+
+  sms_json=$(parse_smstools3 "$sms_file")
+  if [ -z "$sms_json" ]; then
+    error "smstools3: ошибка парсинга файла: $sms_file"
+    return
+  fi
+
+  sender=$(echo "$sms_json" | jq -r '.sender')
+  text=$(echo "$sms_json" | jq -r '.text')
+  timestamp=$(echo "$sms_json" | jq -r '.timestamp')
+
+  process_incoming_message "$sender" "$timestamp" "$text" "$sms_json" "0"
+}
+
 is_telegram_enabled() {
   [ -n "${BOT_TOKEN:-}" ] && [ -n "${CHAT_ID:-}" ]
 }
@@ -437,12 +528,12 @@ send_to_telegram() {
       -d "$payload")
 
     if [ -z "$response" ]; then
-      error "Ошибка отправки в Telegram: Пустой ответ сервера, задайте прокси-интерфейс для подключения"
+      error "Ошибка отправки в Telegram: Пустой ответ сервера, задайте PROXY_INTERFACE/PROXY_URL"
       return 1
     fi
 
     if echo "$response" | grep -q '"ok":true'; then
-      log "Сообщение успешно отправлено в Telegram."
+      log "Сообщение отправлено в Telegram."
       return 0
     else
       error "Ошибка отправки в Telegram: $response"
@@ -487,12 +578,12 @@ send_to_vk() {
       --data-urlencode "message=$message")
 
     if [ -z "$response" ]; then
-      error "Ошибка отправки VK: Пустой ответ сервера, задайте прокси-интерфейс для подключения"
+      error "Ошибка отправки VK: Пустой ответ сервера, задайте PROXY_INTERFACE/PROXY_URL"
       return 1
     fi
 
     if echo "$response" | jq -e '.response' >/dev/null 2>&1; then
-      log "Сообщение успешно отправлено VK."
+      log "Сообщение отправлено VK."
       return 0
     else
       error "Ошибка отправки VK: $response"
@@ -554,7 +645,7 @@ send_to_sms_forward() {
     return 1
   fi
 
-  log "Сообщение успешно переслано на $to через $sms_iface."
+  log "Сообщение переслано на $to через $sms_iface."
   return 0
 }
 
@@ -711,6 +802,25 @@ main() {
   local sender text timestamp
   clean_log
 
+  case "$1" in
+  RECEIVED)
+    if ! is_ipk_installed "smstools3"; then
+      error "Пакет smstools3 не установлен."
+      return 1
+    fi
+    if [ -z "$2" ]; then
+      error "smstools3: Не передан путь к файлу сообщения."
+      return 1
+    fi
+    send_pending_messages
+    handle_smstools3 "$2"
+    return
+    ;;
+  SENT | FAILED | REPORT | CALL)
+    return
+    ;;
+  esac
+
   if [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
     log "Запуск скрипта. INTERFACE_ID=$INTERFACE_ID, MESSAGE_ID=$MESSAGE_ID"
   fi
@@ -758,31 +868,8 @@ main() {
     fi
   fi
 
-  if [ -z "$text" ]; then
-    error "Получено пустое или несуществующее сообщение"
-    return
-  fi
-
-  log "Получено сообщение от $sender: $text"
-
-  check_black_list "$sender"
-  check_white_list "$sender"
-  check_text_black_list "$text"
-  if ! check_text_white_list "$text"; then
-    log "Текст сообщения не соответствует белому списку. Удаляю SMS и пропускаю отправку уведомления."
-    delete_sms
-    exit
-  fi
-  check_reboot_key "$text"
-
-  if ! send_notification "$sender" "$timestamp" "$text"; then
-    if has_active_notifier; then
-      sms_json=$(echo "$sms_json" | jq --arg id "$MESSAGE_ID" '. + {message_id: $id}')
-      save_pending_message "$sms_json"
-    fi
-  else
-    finalize_delivery
-  fi
+  sms_json=$(echo "$sms_json" | jq --arg id "$MESSAGE_ID" '. + {message_id: $id}')
+  process_incoming_message "$sender" "$timestamp" "$text" "$sms_json" "1"
 
   if [ "${DEBUG:-0}" = "1" ]; then
     exec 19>&-
@@ -790,8 +877,20 @@ main() {
 }
 
 check_update() {
-  local local_num=$(echo "${SCRIPT_VERSION#v}" | awk -F. '{print $1*10000 + $2*100 + $3}')
-  local remote_num=$(echo "${REMOTE_VERSION#v}" | awk -F. '{print $1*10000 + $2*100 + ($3 == "" ? 0 : $3)}')
+  local local_num remote_num
+  local l1 l2 l3 l4 r1 r2 r3 r4
+
+  if [ -z "$SCRIPT_VERSION" ] || [ -z "$REMOTE_VERSION" ]; then
+    return
+  fi
+
+  set -- $(printf '%s' "$SCRIPT_VERSION" | sed 's/[^0-9]/ /g')
+  l1=${1:-0}; l2=${2:-0}; l3=${3:-0}; l4=${4:-0}
+  local_num=$(( (l1 << 24) + (l2 << 16) + (l3 << 8) + l4 ))
+
+  set -- $(printf '%s' "$REMOTE_VERSION" | sed 's/[^0-9]/ /g')
+  r1=${1:-0}; r2=${2:-0}; r3=${3:-0}; r4=${4:-0}
+  remote_num=$(( (r1 << 24) + (r2 << 16) + (r3 << 8) + r4 ))
 
   if [ "$remote_num" -gt "$local_num" ]; then
     log "Доступна новая версия: $REMOTE_VERSION. Обновляюсь..."

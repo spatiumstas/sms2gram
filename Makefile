@@ -40,7 +40,7 @@ _pkg-ipk:
 
 	mkdir -p out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram
 	cp sms2gram.sh out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/sms2gram.sh
-	cp 01-sms2gram.sh out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/01-sms2gram.sh
+	sed 's/^SCRIPT_VERSION=""/SCRIPT_VERSION="$(VERSION)"/' 01-sms2gram.sh > out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/01-sms2gram.sh
 	cp common/config.sh out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/config.sh
 	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/sms2gram.sh
 	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/01-sms2gram.sh

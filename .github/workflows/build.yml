@@ -2,6 +2,12 @@ name: Build and Deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_pages:
+        description: "Publish"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -37,6 +43,7 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
 
   build-repository:
+    if: ${{ inputs.publish_pages }}
     runs-on: ubuntu-22.04
     needs: [ build-package ]
 
@@ -104,6 +111,7 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
 
   deploy-repository:
+    if: ${{ inputs.publish_pages }}
     runs-on: ubuntu-22.04
     needs: [ build-repository ]
 
