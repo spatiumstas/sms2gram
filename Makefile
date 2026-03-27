@@ -28,6 +28,7 @@ _pkg-scripts:
 	cp common/ipk/postinst out/$(BUILD_DIR)/control/postinst
 	cp common/ipk/conffiles out/$(BUILD_DIR)/control/conffiles
 	cp common/ipk/postrm out/$(BUILD_DIR)/control/postrm
+	find out/$(BUILD_DIR)/control -type f -print0 | xargs -0 dos2unix
 	chmod +x out/$(BUILD_DIR)/control/postinst
 	chmod +x out/$(BUILD_DIR)/control/postrm
 	chmod +x out/$(BUILD_DIR)/control/conffiles
@@ -42,6 +43,7 @@ _pkg-ipk:
 	cp sms2gram.sh out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/sms2gram.sh
 	sed 's/^SCRIPT_VERSION=""/SCRIPT_VERSION="$(VERSION)"/' 01-sms2gram.sh > out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/01-sms2gram.sh
 	cp common/config.sh out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/config.sh
+	find out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram -type f -print0 | xargs -0 dos2unix
 	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/sms2gram.sh
 	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/01-sms2gram.sh
 	cd out/$(BUILD_DIR)/data; tar czvf ../data.tar.gz .; cd ../../..

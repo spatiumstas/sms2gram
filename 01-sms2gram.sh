@@ -12,6 +12,7 @@ REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/rele
 MODEM_PATTERN="UsbQmi[0-9]*|UsbLte[0-9]*"
 VK_API_VERSION="5.199"
 SMS_FORWARD_LIMIT=250
+SMSTOOLS3_OUTGOING_DIR="/opt/var/spool/sms/outgoing"
 
 if [ "${DEBUG:-0}" = "1" ]; then
   exec 19>$LOG_FILE
@@ -438,13 +439,13 @@ handle_smstools3() {
   local sms_json sender text timestamp
 
   if [ ! -f "$sms_file" ]; then
-    error "smstools3: файл сообщения не найден: $sms_file"
+    error "smstools3: Файл сообщения не найден: $sms_file"
     return
   fi
 
   sms_json=$(parse_smstools3 "$sms_file")
   if [ -z "$sms_json" ]; then
-    error "smstools3: ошибка парсинга файла: $sms_file"
+    error "smstools3: Ошибка парсинга файла: $sms_file"
     return
   fi
 
@@ -610,6 +611,8 @@ send_to_sms_forward() {
   local message
   local payload
   local response
+  local queue_ts
+  local queue_file
 
   to=$(printf '%s' "${SMS_FORWARD_TO:-}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
   if [ -z "$to" ]; then
@@ -618,8 +621,11 @@ send_to_sms_forward() {
 
   sms_iface="${iface:-$INTERFACE_ID}"
 
-  if [ -z "$sms_iface" ]; then
-    error "Не задан интерфейс для SMS-переадресации."
+  if [ "$SMS_FORWARD_BACKEND" != "smstools3" ] && [ -z "$sms_iface" ]; then
+    if [ -z "$sender" ] && [ -z "$timestamp" ]; then
+      return 0
+    fi
+    error "Не получен интерфейс модема для SMS-переадресации."
     return 2
   fi
 
@@ -629,6 +635,30 @@ send_to_sms_forward() {
   if [ "$message_len" -gt "$SMS_FORWARD_LIMIT" ]; then
     message=$(truncate_text_chars "$base_message" "$SMS_FORWARD_LIMIT")
     log "SMS-переадресация: сообщение обрезано до ~$SMS_FORWARD_LIMIT символов."
+  fi
+
+  if [ "$SMS_FORWARD_BACKEND" = "smstools3" ]; then
+    if ! mkdir -p "$SMSTOOLS3_OUTGOING_DIR" >/dev/null 2>&1; then
+      error "smstools3: Не удалось создать каталог очереди: $SMSTOOLS3_OUTGOING_DIR"
+      return 1
+    fi
+
+    queue_ts=$(date '+%Y%m%d%H%M%S')
+    queue_file="$SMSTOOLS3_OUTGOING_DIR/${queue_ts}_$$.queue"
+
+    if cat >"$queue_file" <<EOF
+To: $to
+Alphabet: UTF
+
+$message
+EOF
+    then
+      log "smstools3: Сообщение добавлено в очередь: $queue_file"
+      return 0
+    fi
+
+    error "smstools3: Ошибка SMS-переадресации: не удалось записать $queue_file"
+    return 1
   fi
 
   payload=$(jq -n --arg iface "$sms_iface" --arg to "$to" --arg message "$message" \
@@ -804,6 +834,7 @@ main() {
 
   case "$1" in
   RECEIVED)
+    SMS_FORWARD_BACKEND="smstools3"
     if ! is_ipk_installed "smstools3"; then
       error "Пакет smstools3 не установлен."
       return 1
