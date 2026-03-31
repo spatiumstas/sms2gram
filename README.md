@@ -36,8 +36,7 @@ opkg update && opkg install curl ca-certificates wget-ssl && curl -fsSL https://
    ```
 2. Установите opkg-репозиторий в систему
    ```
-   mkdir -p /opt/etc/opkg
-   echo "src/gz sms2gram https://spatiumstas.github.io/sms2gram/all" > /opt/etc/opkg/sms2gram.conf
+   curl -fsSL https://raw.githubusercontent.com/spatiumstas/feedly/main/add-repo.sh | sh
    ```
 
 3. Установите пакет
@@ -79,5 +78,5 @@ opkg remove sms2gram
 ```
 #### Репозитория
 ```
-rm /opt/etc/opkg/sms2gram.conf
+rm /opt/etc/opkg/feedly.conf
 ```

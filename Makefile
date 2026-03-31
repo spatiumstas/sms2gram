@@ -40,8 +40,8 @@ _pkg-ipk:
 	cd out/$(BUILD_DIR)/control; tar czvf ../control.tar.gz .; cd ../../..
 
 	mkdir -p out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram
-	cp sms2gram.sh out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/sms2gram.sh
-	sed 's/^SCRIPT_VERSION=""/SCRIPT_VERSION="$(VERSION)"/' 01-sms2gram.sh > out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/01-sms2gram.sh
+	cp common/sms2gram.sh out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/sms2gram.sh
+	sed 's/^SCRIPT_VERSION=""/SCRIPT_VERSION="$(VERSION)"/' common/01-sms2gram.sh > out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/01-sms2gram.sh
 	cp common/config.sh out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/config.sh
 	find out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram -type f -print0 | xargs -0 dos2unix
 	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/sms2gram.sh

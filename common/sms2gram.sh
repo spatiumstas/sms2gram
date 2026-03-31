@@ -199,29 +199,6 @@ packages_checker() {
   fi
 }
 
-is_ipk_installed() {
-  [ -n "$(opkg status "$REPO" 2>/dev/null)" ]
-}
-
-ensure_ipk_repo_file() {
-  if [ -f "$SMS2GRAM_REPO_FILE" ]; then
-    return 0
-  fi
-  print_message "Добавляю репозиторий для установки через OPKG..."
-  mkdir -p /opt/etc/opkg
-  echo "src/gz $REPO https://spatiumstas.github.io/$REPO/all" >"$SMS2GRAM_REPO_FILE"
-}
-
-migrate_to_ipk_if_needed() {
-  if is_ipk_installed; then
-    return
-  fi
-
-  ensure_ipk_repo_file || return
-  print_message "Устанавливаю пакет через OPKG..."
-  packages_checker "curl jq ca-certificates wget-ssl sms2gram" 
-}
-
 send_test_message() {
   if [ ! -f "$CONFIG_FILE" ]; then
     print_message "Выполните настройку скрипта" "$RED"
@@ -236,7 +213,6 @@ send_test_message() {
 script_update() {
   packages_checker "curl jq ca-certificates wget-ssl"
 
-  ensure_ipk_repo_file
   if opkg update && opkg install "$REPO"; then
     print_message "Пакет обновлён" "$GREEN"
   else
@@ -249,6 +225,5 @@ script_update() {
 if [ "$1" = "script_update" ]; then
   script_update
 else
-  migrate_to_ipk_if_needed
   main_menu
 fi

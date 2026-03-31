@@ -2,10 +2,7 @@
 printf "\033c"
 set -e
 
-echo "Устанавливаю репозиторий"
-mkdir -p /opt/etc/opkg
-echo "src/gz sms2gram https://spatiumstas.github.io/sms2gram/all" > /opt/etc/opkg/sms2gram.conf
-
-echo "Начинаю установку"
-echo ""
+printf "\nУстанавливаю репозиторий\n\n"
+curl -fsSL https://raw.githubusercontent.com/spatiumstas/feedly/main/add-repo.sh | sh
+printf "\n\nНачинаю установку\n\n"
 opkg update && opkg install sms2gram
