@@ -46,29 +46,42 @@ opkg update && opkg install curl ca-certificates wget-ssl && curl -fsSL https://
 
 # Настройка:
 
-### Подключение Telegram:
+<details>
+  <summary>Подключение Telegram</summary>
 
 - Получаем и копируем `ID` своего аккаунта или чата через [UserInfoBot](https://t.me/userinfobot)
 - Создаём своего бота через [BotFather](https://t.me/BotFather) и копируем его `token`. Указываем его при настройке конфигурации
 
    <img src="https://github.com/user-attachments/assets/ca5c31af-b29c-4d5a-b2d9-75ff64ba2c34" alt="" width="700">
+</details>
 
-### Подключение ВКонтакте:
+<details>
+  <summary>Подключение ВКонтакте</summary>
+
+- Создайте сообщество 
 
 - Создайте токен с правами `messages` и сохраните его в `VK_TOKEN`
   <img src="https://github.com/user-attachments/assets/d921ab0b-0d1d-4a3d-aac6-d078ec356ae5" />
 
-- Укажите получателя в `VK_CHAT_ID`: `user_id`/`chat_id`
+- Укажите получателя в `VK_CHAT_ID`: `user_id` или `chat_id`
+> `user_id` - ID личной страницы, для отправки в личные сообщения, задаётся без `id`
 
-### Переадресация SMS на номер:
+> `chat_id` - ID чата сообщества, имеет формат `20000000xxx`, узнать можно в URL сообщениях чата
+</details>
+
+<details>
+  <summary>Переадрессация SMS на номер</summary>
 
 - В конфигурации укажите `SMS_FORWARD_TO` (например `+78005553535`)
 > Полученное сообщение будет переадресовано на указанный номер, если ваш модем это поддерживает
+</details>
 
-### Настройка smstools3:
+<details>
+  <summary>Подключение smstools3</summary>
 
-- Откройте `/opt/etc/smsd.conf`, настройте под свой модем ([например](https://gist.github.com/frsvme/b75bcdb8e269605c0eecf2e82bb4d4f0)), и добавьте:
+- В `/opt/etc/smsd.conf` настройте под свой модем, ([например](https://gist.github.com/frsvme/b75bcdb8e269605c0eecf2e82bb4d4f0)), и добавьте:
 `eventhandler = /opt/root/sms2gram/01-sms2gram.sh`
+</details>
 
 ##  Удаление
 
