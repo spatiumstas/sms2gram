@@ -1,7 +1,9 @@
 #!/bin/sh
 
 source /opt/root/sms2gram/config.sh
-export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
+SYSTEM_LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+OPKG_LD_LIBRARY_PATH="/opt/lib:/opt/usr/lib:/lib:/usr/lib"
+export LD_LIBRARY_PATH="$OPKG_LD_LIBRARY_PATH"
 INTERFACE_ID="$interface_id"
 IP_ID="$id"
 MESSAGE_ID="$message_id"
@@ -40,6 +42,10 @@ curl_with_proxy() {
   fi
 }
 
+ndmc_cli() {
+  LD_LIBRARY_PATH="$SYSTEM_LD_LIBRARY_PATH" ndmc -c "$@"
+}
+
 log() {
   local message="$(date '+%Y-%m-%d %H:%M:%S') [INFO] $*"
   echo "$message" | tee -a "$LOG_FILE"
@@ -53,7 +59,7 @@ error() {
 }
 
 get_sms_data() {
-  ndmc -c sms "$INTERFACE_ID" list id "$MESSAGE_ID" 2>/dev/null
+  ndmc_cli sms "$INTERFACE_ID" list id "$MESSAGE_ID" 2>/dev/null
 }
 
 get_model() {
@@ -116,7 +122,7 @@ send_at_command() {
   cmd=$(printf '%s' "$text" | sed 's/^[[:space:]]*//')
   log "Получена AT-команда: $cmd"
   delete_sms
-  output=$(ndmc -c interface "$iface" tty send "$cmd" 2>&1 | tr -d '\r' | sed 's/\[K//g')
+  output=$(ndmc_cli interface "$iface" tty send "$cmd" 2>&1 | tr -d '\r' | sed 's/\[K//g')
   header=$(set_header "$iface")
 
   reply=$(printf "%s\n\nСообщение от: %s\nДата: %s\nAT-команда: %s\nИнтерфейс: %s\nОтвет модема:\n\n%s" "$header" "$sender" "$timestamp" "$cmd" "$iface" "$output")

@@ -1,6 +1,8 @@
 #!/bin/sh
 
-export LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
+SYSTEM_LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+OPKG_LD_LIBRARY_PATH="/opt/lib:/opt/usr/lib:/lib:/usr/lib"
+export LD_LIBRARY_PATH="$OPKG_LD_LIBRARY_PATH"
 RED='\033[1;31m'
 GREEN='\033[1;32m'
 CYAN='\033[0;36m'
@@ -77,26 +79,6 @@ exit_function() {
   echo ""
   read -n 1 -s -r -p "Для возврата нажмите любую клавишу..."
   main_menu
-}
-
-clear_config() {
-  sed -i 's|^BOT_TOKEN=.*|BOT_TOKEN=""|' "$CONFIG_FILE"
-  sed -i 's|^CHAT_ID=.*|CHAT_ID=""|' "$CONFIG_FILE"
-
-  print_message "Конфигурация очищена в $CONFIG_FILE" "$GREEN"
-  exit_function
-}
-
-download_file() {
-  local url="$1"
-  local path="$2"
-  local filename=$(basename "$path")
-  echo "Скачиваю файл $filename..."
-
-  if ! curl -s -f -o "$path" "$url"; then
-    print_message "Ошибка при скачивании файла $filename. Возможно, файл не найден" "$RED"
-    exit_function
-  fi
 }
 
 update_config_value() {
