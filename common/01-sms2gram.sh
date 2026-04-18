@@ -1,9 +1,6 @@
 #!/bin/sh
 
 source /opt/root/sms2gram/config.sh
-SYSTEM_LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-OPKG_LD_LIBRARY_PATH="/opt/lib:/opt/usr/lib:/lib:/usr/lib"
-export LD_LIBRARY_PATH="$OPKG_LD_LIBRARY_PATH"
 INTERFACE_ID="$interface_id"
 IP_ID="$id"
 MESSAGE_ID="$message_id"
@@ -15,6 +12,7 @@ MODEM_PATTERN="UsbQmi[0-9]*|UsbLte[0-9]*"
 VK_API_VERSION="5.199"
 SMS_FORWARD_LIMIT=250
 SMSTOOLS3_OUTGOING_DIR="/opt/var/spool/sms/outgoing"
+CURL_TIMEOUT=10
 
 if [ "${DEBUG:-0}" = "1" ]; then
   exec 19>$LOG_FILE
@@ -34,16 +32,17 @@ rci() {
 
 curl_with_proxy() {
   if [ -n "${PROXY_INTERFACE:-}" ]; then
-    curl -s --interface "$PROXY_INTERFACE" "$@"
+    curl -s --max-time "$CURL_TIMEOUT" --interface "$PROXY_INTERFACE" "$@"
   elif [ -n "${PROXY_URL:-}" ]; then
-    curl -s -x "$PROXY_URL" "$@"
+    curl -s --max-time "$CURL_TIMEOUT" -x "$PROXY_URL" "$@"
   else
-    curl -s "$@"
+    curl -s --max-time "$CURL_TIMEOUT" "$@"
   fi
 }
 
 ndmc_cli() {
-  LD_LIBRARY_PATH="$SYSTEM_LD_LIBRARY_PATH" ndmc -c "$@"
+  unset LD_LIBRARY_PATH
+  ndmc -c "$@"
 }
 
 log() {
@@ -535,7 +534,7 @@ send_to_telegram() {
       -d "$payload")
 
     if [ -z "$response" ]; then
-      error "Ошибка отправки в Telegram: Пустой ответ сервера, задайте PROXY_INTERFACE/PROXY_URL"
+      error "Ошибка отправки в Telegram: Пустой ответ сервера, проверьте подключение к интернету, или задайте PROXY_INTERFACE/PROXY_URL"
       return 1
     fi
 
@@ -585,7 +584,7 @@ send_to_vk() {
       --data-urlencode "message=$message")
 
     if [ -z "$response" ]; then
-      error "Ошибка отправки VK: Пустой ответ сервера, задайте PROXY_INTERFACE/PROXY_URL"
+      error "Ошибка отправки VK: Пустой ответ сервера, проверьте подключение к интернету."
       return 1
     fi
 
