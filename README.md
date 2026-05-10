@@ -1,6 +1,6 @@
 # Возможности
 
-- Отправка полученного SMS в Telegram/ВКонтакте/другой номер с модема NDIS/QMI
+- Отправка полученного SMS в Telegram/ВКонтакте/ntfy/другой номер с модема NDIS/QMI
 - Поддержка [USB-модемов](http://huawei.mobzon.ru/huawei-modem-3-5) (требуется пакет `smstools3`)
 - Поддержка прокси-интерфейса/прокси-ссылки, для отправки уведомлений
 - Поддержка переадресации полученного SMS на другой номер
@@ -67,6 +67,14 @@ opkg update && opkg install curl ca-certificates wget-ssl && curl -fsSL https://
 > `user_id` - ID личной страницы, для отправки в личные сообщения, задаётся без `id`
 
 > `chat_id` - ID чата сообщества, имеет формат `20000000xxx`, узнать можно в URL сообщениях чата
+</details>
+
+<details>
+  <summary>Подключение ntfy</summary>
+
+- Укажите `NTFY_URL` c полным URL включая топик, например:
+  - `https://login:pass@mydomain.com/sms2gram`
+
 </details>
 
 <details>

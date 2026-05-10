@@ -1,8 +1,4 @@
 #!/bin/sh
-
-SYSTEM_LD_LIBRARY_PATH="/lib:/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-OPKG_LD_LIBRARY_PATH="/opt/lib:/opt/usr/lib:/lib:/usr/lib"
-export LD_LIBRARY_PATH="$OPKG_LD_LIBRARY_PATH"
 RED='\033[1;31m'
 GREEN='\033[1;32m'
 CYAN='\033[0;36m'
@@ -31,6 +27,7 @@ print_menu() {
  (__  ) / / / / (__  ) __/ /_/ / /  / /_/ / / / / / /
 /____/_/ /_/ /_/____/____|__, /_/   \__,_/_/ /_/ /_/ 
                         /____/                       
+
 EOF
   printf "${RED}Версия скрипта:\t${NC}%s\n\n" "$SCRIPT_VERSION by ${USERNAME}"
   echo "1. Настроить конфигурацию"
@@ -130,6 +127,7 @@ setup_config() {
   update_config_value "Введите токен бота ВКонтакте (пусто — без изменений, '-' — очистить): " "VK_TOKEN"
   update_config_value "Введите ID пользователя/чата ВКонтакте (пусто — без изменений, '-' — очистить): " "VK_CHAT_ID"
   update_config_value "Введите номер для SMS-переадресации (пусто — без изменений, '-' — очистить): " "SMS_FORWARD_TO"
+  update_config_value "Введите URL ntfy (пусто — без изменений, '-' — очистить): " "NTFY_URL"
   update_config_value "Введите прокси-интерфейс, например nwg0 (пусто — без изменений, '-' — очистить): " "PROXY_INTERFACE"
   update_config_value "Введите прокси-ссылку, например socks5:// (пусто — без изменений, '-' — очистить): " "PROXY_URL"
   update_config_value "Помечать сообщение прочитанным после отправки? (1 - да, 0 - нет): " "MARK_READ_MESSAGE_AFTER_SEND"

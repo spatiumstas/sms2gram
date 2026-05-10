@@ -1,7 +1,5 @@
 #!/bin/sh
 
-SMS2GRAM_DIR="/opt/root/sms2gram"
-
 rm -f "/opt/bin/sms2gram"
 rm -f "/opt/var/log/sms2gram.log"
 rm -f "/opt/etc/ndm/sms.d/01-sms2gram.sh"

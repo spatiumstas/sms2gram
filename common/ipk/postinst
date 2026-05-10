@@ -10,9 +10,9 @@ BIN_LINK="/opt/bin/sms2gram"
 
 print_message() {
   local message=$1
-  local color=${2:-$NC}
+  local color=${2:-}
   local border=$(printf '%0.s-' $(seq 1 $((${#message} + 2))))
-  printf "${color}\n+${border}+\n| ${message} |\n+${border}+\n${NC}\n"
+  printf "${color}\n+${border}+\n| ${message} |\n+${border}+\n"
 }
 
 mkdir -p "$SMS2GRAM_DIR"

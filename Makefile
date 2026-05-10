@@ -22,7 +22,7 @@ _pkg-control:
 	echo "Architecture: all" >> out/$(BUILD_DIR)/control/control
 	echo "License: MIT" >> out/$(BUILD_DIR)/control/control
 	echo "URL: https://github.com/spatiumstas/sms2gram" >> out/$(BUILD_DIR)/control/control
-	echo "Description: SMS to Telegram/VK/SMS forwarder" >> out/$(BUILD_DIR)/control/control
+	echo "Description: SMS to Telegram/VK/ntfy/SMS forwarder" >> out/$(BUILD_DIR)/control/control
 
 _pkg-scripts:
 	cp common/ipk/postinst out/$(BUILD_DIR)/control/postinst

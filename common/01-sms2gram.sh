@@ -57,6 +57,27 @@ error() {
   logger -p err -t sms2gram "$*"
 }
 
+escape_html() {
+  printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'
+}
+
+register_send_failure() {
+  local channel="$1"
+  local reason="$2"
+  local retry_count="$3"
+  local max_retries="$4"
+  local retry_delay="$5"
+
+  error "Ошибка отправки в $channel: $reason" >&2
+  retry_count=$((retry_count + 1))
+  if [ $retry_count -lt $max_retries ]; then
+    log "Повторная попытка отправки через $retry_delay секунд... (попытка $retry_count из $max_retries)" >&2
+    sleep $retry_delay
+  fi
+
+  printf '%s' "$retry_count"
+}
+
 get_sms_data() {
   ndmc_cli sms "$INTERFACE_ID" list id "$MESSAGE_ID" 2>/dev/null
 }
@@ -84,20 +105,34 @@ build_notification_message() {
   local text="$3"
   local iface="$4"
   local style="${5:-plain}"
-  local template="%s\n\nСообщение от: %s\nДата: %s\n\nТекст: %s"
+  local model="🤖"
+  local sender_label="📨"
+  local date_label="📅"
+  local text_label="💬"
+  local header
 
   if [ -z "$sender" ] && [ -z "$timestamp" ]; then
     printf '%s' "$text"
     return
   fi
 
-  if [ "$style" = "html" ]; then
-    template="%s\n\n<b>Сообщение от:</b> %s\n<b>Дата:</b> %s\n\n<b>Текст:</b> %s"
+  if [ "$style" = "telegram_html" ]; then
+    model="<tg-emoji emoji-id='5258093637450866522'>🤖</tg-emoji>"
+    sender_label="<tg-emoji emoji-id='5256143829672672750'>📨</tg-emoji>"
+    date_label="<tg-emoji emoji-id='5258105663359294787'>📅</tg-emoji>"
+    text_label="<tg-emoji emoji-id='5260535596941582167'>💬</tg-emoji>"
   fi
 
-  local header
   header=$(set_header "$iface")
-  printf "$template" "$header" "$sender" "$timestamp" "$text"
+  if [ "$style" = "telegram_html" ]; then
+    header=$(escape_html "$header")
+  fi
+  printf '%s %s\n\n' "$model" "$header"
+
+  printf '%s %s\n%s %s\n\n%s %s' \
+    "$sender_label" "$sender" \
+    "$date_label" "$timestamp" \
+    "$text_label" "$text"
 }
 
 is_at_command() {
@@ -473,6 +508,10 @@ is_sms_forward_enabled() {
   [ -n "${SMS_FORWARD_TO:-}" ]
 }
 
+is_ntfy_enabled() {
+  [ -n "${NTFY_URL:-}" ]
+}
+
 text_len_chars() {
   local text="$1"
   printf '%s' "$text" | jq -R -s 'explode | length'
@@ -485,7 +524,7 @@ truncate_text_chars() {
 }
 
 has_active_notifier() {
-  is_telegram_enabled || is_vk_enabled || is_sms_forward_enabled
+  is_telegram_enabled || is_vk_enabled || is_sms_forward_enabled || is_ntfy_enabled
 }
 
 finalize_delivery() {
@@ -502,14 +541,16 @@ send_to_telegram() {
   local timestamp="$2"
   local text="$3"
   local iface="$4"
-  local escaped_text
+  local escaped_sender escaped_timestamp escaped_text
+  local message
   local retry_count=0
   local max_retries=3
   local retry_delay=5
-  local message
 
-  escaped_text=$(echo "$text" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g')
-  message=$(build_notification_message "$sender" "$timestamp" "$escaped_text" "$iface" "html")
+  escaped_sender=$(escape_html "$sender")
+  escaped_timestamp=$(escape_html "$timestamp")
+  escaped_text=$(escape_html "$text")
+  message=$(build_notification_message "$escaped_sender" "$escaped_timestamp" "$escaped_text" "$iface" "telegram_html")
 
   local chat_id="${CHAT_ID%%_*}"
   local topic_id="${CHAT_ID#*_}"
@@ -529,25 +570,22 @@ send_to_telegram() {
 
   while [ $retry_count -lt $max_retries ]; do
     local response
+    local reason=""
     response=$(curl_with_proxy -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
       -H "Content-Type: application/json" \
       -d "$payload")
 
     if [ -z "$response" ]; then
-      error "Ошибка отправки в Telegram: Пустой ответ сервера, проверьте подключение к интернету, или задайте PROXY_INTERFACE/PROXY_URL"
-      return 1
-    fi
-
-    if echo "$response" | grep -q '"ok":true'; then
+      reason="Пустой ответ сервера, проверьте подключение к интернету, или задайте PROXY_INTERFACE/PROXY_URL"
+    elif echo "$response" | grep -q '"ok":true'; then
       log "Сообщение отправлено в Telegram."
       return 0
     else
-      error "Ошибка отправки в Telegram: $response"
-      retry_count=$((retry_count + 1))
-      if [ $retry_count -lt $max_retries ]; then
-        log "Повторная попытка отправки через $retry_delay секунд... (попытка $retry_count из $max_retries)"
-        sleep $retry_delay
-      fi
+      reason="$response"
+    fi
+
+    if [ -n "$reason" ]; then
+      retry_count=$(register_send_failure "Telegram" "$reason" "$retry_count" "$max_retries" "$retry_delay")
     fi
   done
 
@@ -575,6 +613,7 @@ send_to_vk() {
 
   while [ $retry_count -lt $max_retries ]; do
     local response
+    local reason=""
 
     response=$(curl_with_proxy -X POST "https://api.vk.com/method/messages.send" \
       --data-urlencode "access_token=$VK_TOKEN" \
@@ -584,20 +623,53 @@ send_to_vk() {
       --data-urlencode "message=$message")
 
     if [ -z "$response" ]; then
-      error "Ошибка отправки VK: Пустой ответ сервера, проверьте подключение к интернету."
-      return 1
-    fi
-
-    if echo "$response" | jq -e '.response' >/dev/null 2>&1; then
+      reason="Пустой ответ сервера, проверьте подключение к интернету."
+    elif echo "$response" | jq -e '.response' >/dev/null 2>&1; then
       log "Сообщение отправлено VK."
       return 0
     else
-      error "Ошибка отправки VK: $response"
-      retry_count=$((retry_count + 1))
-      if [ $retry_count -lt $max_retries ]; then
-        log "Повторная попытка отправки через $retry_delay секунд... (попытка $retry_count из $max_retries)"
-        sleep $retry_delay
-      fi
+      reason="$response"
+    fi
+
+    if [ -n "$reason" ]; then
+      retry_count=$(register_send_failure "VK" "$reason" "$retry_count" "$max_retries" "$retry_delay")
+    fi
+  done
+
+  return 1
+}
+
+send_to_ntfy() {
+  local sender="$1"
+  local timestamp="$2"
+  local text="$3"
+  local iface="$4"
+  local retry_count=0
+  local max_retries=3
+  local retry_delay=5
+  local message response
+
+  if [ -z "${NTFY_URL:-}" ]; then
+    return 2
+  fi
+
+  message=$(build_notification_message "$sender" "$timestamp" "$text" "$iface")
+
+  while [ $retry_count -lt $max_retries ]; do
+    local reason=""
+    response=$(curl_with_proxy -X POST -d "$message" "$NTFY_URL")
+
+    if [ -z "$response" ]; then
+      reason="Пустой ответ сервера, проверьте подключение к интернету."
+    elif echo "$response" | jq -e '.id and .topic' >/dev/null 2>&1; then
+      log "Сообщение отправлено в ntfy."
+      return 0
+    else
+      reason="$response"
+    fi
+
+    if [ -n "$reason" ]; then
+      retry_count=$(register_send_failure "ntfy" "$reason" "$retry_count" "$max_retries" "$retry_delay")
     fi
   done
 
@@ -616,6 +688,9 @@ send_to_sms_forward() {
   local message
   local payload
   local response
+  local retry_count=0
+  local max_retries=3
+  local retry_delay=5
   local queue_ts
   local queue_file
 
@@ -669,19 +744,23 @@ EOF
   payload=$(jq -n --arg iface "$sms_iface" --arg to "$to" --arg message "$message" \
     '[{"sms":{"send":{"interface":$iface,"to":$to,"message":$message}}}]')
 
-  response=$(rci "" "$payload")
-  if [ -z "$response" ]; then
-    error "Ошибка SMS-переадресации: Пустой ответ RCI"
-    return 1
-  fi
+  while [ $retry_count -lt $max_retries ]; do
+    local reason=""
+    response=$(rci "" "$payload")
 
-  if echo "$response" | grep -qi 'error'; then
-    error "Ошибка SMS-переадресации: $response"
-    return 1
-  fi
+    if [ -z "$response" ]; then
+      reason="Пустой ответ RCI"
+    elif echo "$response" | grep -qi 'error'; then
+      reason="$response"
+    else
+      log "Сообщение переслано на $to через $sms_iface."
+      return 0
+    fi
 
-  log "Сообщение переслано на $to через $sms_iface."
-  return 0
+    retry_count=$(register_send_failure "SMS-переадресация" "$reason" "$retry_count" "$max_retries" "$retry_delay")
+  done
+
+  return 1
 }
 
 send_to_channel() {
@@ -711,9 +790,10 @@ send_notification() {
   send_to_channel is_telegram_enabled send_to_telegram "$sender" "$timestamp" "$text" "$iface"
   send_to_channel is_vk_enabled send_to_vk "$sender" "$timestamp" "$text" "$iface"
   send_to_channel is_sms_forward_enabled send_to_sms_forward "$sender" "$timestamp" "$text" "$iface"
+  send_to_channel is_ntfy_enabled send_to_ntfy "$sender" "$timestamp" "$text" "$iface"
 
   if [ $attempted -eq 0 ]; then
-    error "Не настроены каналы уведомлений. Укажите BOT_TOKEN и/или VK_TOKEN и/или SMS_FORWARD_TO в конфигурации."
+    error "Не настроены каналы уведомлений."
     return 2
   fi
 
