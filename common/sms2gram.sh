@@ -124,6 +124,7 @@ setup_config() {
 
   update_config_value "Введите токен бота Telegram (пусто — без изменений, '-' — очистить): " "BOT_TOKEN"
   update_config_value "Введите ID пользователя/чата Telegram (пусто — без изменений, '-' — очистить): " "CHAT_ID"
+  update_config_value "Введите RCI токен (пусто — без изменений, '-' — очистить): " "RCI_TOKEN"
   update_config_value "Введите токен бота ВКонтакте (пусто — без изменений, '-' — очистить): " "VK_TOKEN"
   update_config_value "Введите ID пользователя/чата ВКонтакте (пусто — без изменений, '-' — очистить): " "VK_CHAT_ID"
   update_config_value "Введите номер для SMS-переадресации (пусто — без изменений, '-' — очистить): " "SMS_FORWARD_TO"

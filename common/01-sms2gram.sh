@@ -7,6 +7,8 @@ MESSAGE_ID="$message_id"
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SCRIPT="sms2gram.sh"
 SCRIPT_VERSION=""
+USERAGENT="sms2gram/$SCRIPT_VERSION"
+RCI_URL="http://127.0.0.1:79/rci"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
 MODEM_PATTERN="UsbQmi[0-9]*|UsbLte[0-9]*"
 VK_API_VERSION="5.199"
@@ -20,13 +22,21 @@ if [ "${DEBUG:-0}" = "1" ]; then
   set -x
 fi
 
+rci_curl() {
+  if [ -n "${RCI_TOKEN:-}" ]; then
+    curl -A "$USERAGENT" -H "X-Ndma-Tkn: $RCI_TOKEN" "$@"
+  else
+    curl -A "$USERAGENT" "$@"
+  fi
+}
+
 rci() {
   local endpoint="$1"
   local body="${2:-}"
   if [ -n "$body" ]; then
-    curl -s --header "Content-Type: application/json" --request POST --data "$body" http://localhost:79/rci/
+    rci_curl -s --header "Content-Type: application/json" --request POST --data "$body" "$RCI_URL/"
   else
-    curl -s "http://localhost:79/rci/$endpoint"
+    rci_curl -s "$RCI_URL/$endpoint"
   fi
 }
 
@@ -55,6 +65,18 @@ error() {
   local message="$(date '+%Y-%m-%d %H:%M:%S') [ERROR] $*"
   echo "$message" | tee -a "$LOG_FILE"
   logger -p err -t sms2gram "$*"
+}
+
+check_rci_token() {
+  [ -z "${RCI_TOKEN:-}" ] && return 0
+
+  if rci_curl -fsS -o /dev/null \
+    -H "Accept: application/json" \
+    "$RCI_URL/whoami"; then
+    return 0
+  fi
+
+  error "Токен RCI недействителен или отозван."
 }
 
 escape_html() {
@@ -916,6 +938,7 @@ main() {
   local sms_json
   local sender text timestamp
   clean_log
+  check_rci_token
 
   case "$1" in
   RECEIVED)

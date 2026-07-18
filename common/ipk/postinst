@@ -18,6 +18,7 @@ print_message() {
 mkdir -p "$SMS2GRAM_DIR"
 chmod +x "$SMS_SCRIPT" 2>/dev/null
 chmod +x "$SMS_HOOK" 2>/dev/null
+chmod 600 "$SMS2GRAM_DIR/config.sh" 2>/dev/null
 
 ln -sf "$SMS_SCRIPT" "$BIN_LINK"
 ln -sf "$SMS_HOOK" "$SMSD_LINK"
