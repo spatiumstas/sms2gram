@@ -1,8 +1,14 @@
 SHELL := /bin/bash
-VERSION := $(shell cat VERSION)
+PKG_VERSION ?=
 PACKAGE := sms2gram
 ROOT_DIR := /opt
 DEPENDENCIES := curl, jq, ca-certificates, wget-ssl
+
+ifeq ($(strip $(PKG_VERSION)),)
+ifneq ($(filter sms2gram-ipk _pkg-ipk _pkg-control,$(MAKECMDGOALS)),)
+$(error PKG_VERSION is required; use make sms2gram-ipk PKG_VERSION=1.2.3)
+endif
+endif
 
 .PHONY: clean _pkg-clean _pkg-control _pkg-scripts _pkg-ipk sms2gram-ipk
 
@@ -16,7 +22,7 @@ _pkg-clean:
 
 _pkg-control:
 	echo "Package: $(PACKAGE)" > out/$(BUILD_DIR)/control/control
-	echo "Version: $(VERSION)" >> out/$(BUILD_DIR)/control/control
+	echo "Version: $(PKG_VERSION)" >> out/$(BUILD_DIR)/control/control
 	echo "Depends: $(DEPENDENCIES)" >> out/$(BUILD_DIR)/control/control
 	echo "Section: net" >> out/$(BUILD_DIR)/control/control
 	echo "Architecture: all" >> out/$(BUILD_DIR)/control/control
@@ -34,15 +40,15 @@ _pkg-scripts:
 	chmod +x out/$(BUILD_DIR)/control/conffiles
 
 _pkg-ipk:
-	make _pkg-clean
-	make _pkg-control
-	make _pkg-scripts
+	$(MAKE) _pkg-clean
+	$(MAKE) _pkg-control
+	$(MAKE) _pkg-scripts
 	cd out/$(BUILD_DIR)/control; tar czvf ../control.tar.gz .; cd ../../..
 
 	mkdir -p out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram
 	cp common/sms2gram.sh out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/sms2gram.sh
-	sed 's/^SCRIPT_VERSION=""/SCRIPT_VERSION="$(VERSION)"/' common/01-sms2gram.sh > out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/01-sms2gram.sh
-	cp common/config.sh out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/config.sh
+	sed 's/^SCRIPT_VERSION=""/SCRIPT_VERSION="$(PKG_VERSION)"/' common/01-sms2gram.sh > out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/01-sms2gram.sh
+	cp common/config.conf out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/config.conf
 	find out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram -type f -print0 | xargs -0 dos2unix
 	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/sms2gram.sh
 	chmod +x out/$(BUILD_DIR)/data$(ROOT_DIR)/root/sms2gram/01-sms2gram.sh
@@ -50,10 +56,10 @@ _pkg-ipk:
 
 	echo 2.0 > out/$(BUILD_DIR)/debian-binary
 	cd out/$(BUILD_DIR); \
-	tar czvf ../$(PACKAGE)_$(VERSION).ipk control.tar.gz data.tar.gz debian-binary; \
+	tar czvf ../$(PACKAGE)_$(PKG_VERSION).ipk control.tar.gz data.tar.gz debian-binary; \
 	cd ../..
 
 sms2gram-ipk:
-	@make \
+	@$(MAKE) \
 		BUILD_DIR=pkg \
 		_pkg-ipk

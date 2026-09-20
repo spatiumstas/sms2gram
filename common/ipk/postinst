@@ -3,6 +3,8 @@
 SMS2GRAM_DIR="/opt/root/sms2gram"
 SMS_SCRIPT="$SMS2GRAM_DIR/sms2gram.sh"
 SMS_HOOK="$SMS2GRAM_DIR/01-sms2gram.sh"
+LEGACY_CONFIG_FILE="$SMS2GRAM_DIR/config.sh"
+CONFIG_FILE="$SMS2GRAM_DIR/config.conf"
 SMSD_LINK="/opt/etc/ndm/sms.d/01-sms2gram.sh"
 IFIPCHANGED_LINK="/opt/etc/ndm/ifipchanged.d/01-sms2gram.sh"
 IFIP6CHANGED_LINK="/opt/etc/ndm/ifip6changed.d/01-sms2gram.sh"
@@ -15,10 +17,78 @@ print_message() {
   printf "${color}\n+${border}+\n| ${message} |\n+${border}+\n"
 }
 
+append_config_line() {
+  local line="$1"
+  [ -f "$CONFIG_FILE" ] || : >"$CONFIG_FILE"
+
+  if [ -s "$CONFIG_FILE" ]; then
+    local last_char
+    last_char=$(tail -c 1 "$CONFIG_FILE" 2>/dev/null)
+    [ -n "$last_char" ] && printf '\n' >>"$CONFIG_FILE"
+  fi
+
+  printf '%s\n' "$line" >>"$CONFIG_FILE"
+}
+
+get_config_value() {
+  local key="$1"
+  grep "^$key=" "$CONFIG_FILE" 2>/dev/null | head -n 1 | cut -d '=' -f2- | sed 's/^"//;s/"$//'
+}
+
+set_config_raw() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^$key=" "$CONFIG_FILE" 2>/dev/null; then
+    sed -i "s|^$key=.*|$key=$value|" "$CONFIG_FILE"
+  else
+    append_config_line "$key=$value"
+  fi
+}
+
+migrate_boolean_option() {
+  local key="$1"
+  local default="$2"
+  local value
+  value=$(get_config_value "$key")
+
+  case "$value" in
+    1 | true) set_config_raw "$key" true ;;
+    0 | false) set_config_raw "$key" false ;;
+    *) set_config_raw "$key" "$default" ;;
+  esac
+}
+
+migrate_numeric_mode() {
+  local key="$1"
+  local default="$2"
+  local value
+  value=$(get_config_value "$key")
+
+  case "$value" in
+    0 | 1 | 2) set_config_raw "$key" "$value" ;;
+    true) set_config_raw "$key" 1 ;;
+    false) set_config_raw "$key" 0 ;;
+    *) set_config_raw "$key" "$default" ;;
+  esac
+}
+
 mkdir -p "$SMS2GRAM_DIR"
 chmod +x "$SMS_SCRIPT" 2>/dev/null
 chmod +x "$SMS_HOOK" 2>/dev/null
-chmod 600 "$SMS2GRAM_DIR/config.sh" 2>/dev/null
+
+if [ -f "$LEGACY_CONFIG_FILE" ]; then
+  mv -f "$LEGACY_CONFIG_FILE" "$CONFIG_FILE"
+fi
+
+migrate_boolean_option "MARK_READ_MESSAGE_AFTER_SEND" false
+migrate_boolean_option "DELETE_MESSAGE_AFTER_SEND" false
+migrate_boolean_option "AT_COMMANDS_ENABLED" false
+migrate_boolean_option "AUTO_UPDATE" true
+migrate_boolean_option "DEBUG" false
+migrate_numeric_mode "CLI_COMMANDS_ENABLED" 0
+migrate_numeric_mode "REBOOT_SIM_IF_INVALID" 0
+
+chmod 600 "$CONFIG_FILE" 2>/dev/null
 
 ln -sf "$SMS_SCRIPT" "$BIN_LINK"
 ln -sf "$SMS_HOOK" "$SMSD_LINK"

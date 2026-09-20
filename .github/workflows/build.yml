@@ -2,6 +2,11 @@ name: Build and Deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -12,7 +17,18 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
+
+      - name: Validate version
+        uses: actions/github-script@v9
+        env:
+          PKG_VERSION: ${{ inputs.version }}
+        with:
+          script: |
+            const version = process.env.PKG_VERSION;
+            if (!/^[0-9]+\.[0-9]+(?:\.[0-9]+)?$/.test(version)) {
+              throw new Error('Use version X.Y or X.Y.Z and a positive integer revision');
+            }
 
       - name: Install build tools
         run: |
@@ -20,7 +36,9 @@ jobs:
           sudo apt-get install -y dos2unix
 
       - name: Build package
-        run: make sms2gram-ipk
+        env:
+          PKG_VERSION: ${{ inputs.version }}
+        run: make sms2gram-ipk PKG_VERSION="$PKG_VERSION"
 
       - name: Upload files
         uses: actions/upload-artifact@v7
@@ -35,7 +53,7 @@ jobs:
           ls ./out/sms2gram_*.ipk >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
-  publish-latest-release:
+  publish-release:
     runs-on: ubuntu-22.04
     needs: [ build-package ]
     env:
@@ -48,23 +66,17 @@ jobs:
           path: out
           merge-multiple: true
 
-      - name: Resolve latest target release
+      - name: Resolve target release
         id: target-release
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
+        env:
+          PKG_VERSION: ${{ inputs.version }}
         with:
           script: |
             const { owner, repo } = context.repo;
-            const releases = await github.paginate(github.rest.repos.listReleases, {
-              owner,
-              repo,
-              per_page: 100,
-            });
-
-            const picked = releases.find((rel) => !rel.draft && !rel.prerelease);
-            if (!picked) {
-              core.setFailed('No release found to update');
-              return;
-            }
+            const tag = process.env.PKG_VERSION;
+            const { data: picked } = await github.rest.repos.getReleaseByTag({ owner, repo, tag });
+            if (picked.draft || picked.prerelease) throw new Error(`Release ${tag} must be published and stable`);
 
             core.setOutput('id', String(picked.id));
             core.setOutput('tag', picked.tag_name);

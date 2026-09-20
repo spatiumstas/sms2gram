@@ -1,6 +1,6 @@
 #!/bin/sh
 
-source /opt/root/sms2gram/config.sh
+source /opt/root/sms2gram/config.conf
 INTERFACE_ID="$interface_id"
 IP_ID="$id"
 MESSAGE_ID="$message_id"
@@ -9,14 +9,17 @@ SCRIPT="sms2gram.sh"
 SCRIPT_VERSION=""
 USERAGENT="sms2gram/$SCRIPT_VERSION"
 RCI_URL="http://127.0.0.1:79/rci"
+PROJECT_URL="https://github.com/spatiumstas/sms2gram"
 REMOTE_VERSION=$(curl -s "https://api.github.com/repos/spatiumstas/sms2gram/releases/latest" | grep -Po '"tag_name": "\K.*?(?=")')
+RELEASE_NOTES="$PROJECT_URL/releases/tag"
 MODEM_PATTERN="UsbQmi[0-9]*|UsbLte[0-9]*"
 VK_API_VERSION="5.199"
 SMS_FORWARD_LIMIT=250
+COMMAND_RESPONSE_LIMIT=3500
 SMSTOOLS3_OUTGOING_DIR="/opt/var/spool/sms/outgoing"
 CURL_TIMEOUT=10
 
-if [ "${DEBUG:-0}" = "1" ]; then
+if [ "${DEBUG:-false}" = "true" ]; then
   exec 19>$LOG_FILE
   BASH_XTRACEFD=19
   set -x
@@ -127,10 +130,13 @@ build_notification_message() {
   local text="$3"
   local iface="$4"
   local style="${5:-plain}"
+  local layout="${6:-normal}"
+  local command_response="${7:-}"
   local model="🤖"
   local sender_label="📨"
   local date_label="📅"
   local text_label="💬"
+  local response_label="➡️"
   local header
 
   if [ -z "$sender" ] && [ -z "$timestamp" ]; then
@@ -143,6 +149,9 @@ build_notification_message() {
     sender_label="<tg-emoji emoji-id='5256143829672672750'>📨</tg-emoji>"
     date_label="<tg-emoji emoji-id='5258105663359294787'>📅</tg-emoji>"
     text_label="<tg-emoji emoji-id='5260535596941582167'>💬</tg-emoji>"
+    if [ "$layout" = "compact-command" ]; then
+      response_label="<tg-emoji emoji-id='5258215850745275216'>➡️</tg-emoji>"
+    fi
   fi
 
   header=$(set_header "$iface")
@@ -151,15 +160,31 @@ build_notification_message() {
   fi
   printf '%s %s\n\n' "$model" "$header"
 
-  printf '%s %s\n%s %s\n\n%s %s' \
-    "$sender_label" "$sender" \
-    "$date_label" "$timestamp" \
-    "$text_label" "$text"
+  if [ "$layout" = "compact-command" ]; then
+    printf '%s %s\n%s %s\n%s %s' \
+      "$sender_label" "$sender" \
+      "$date_label" "$timestamp" \
+      "$text_label" "$text"
+    if [ -n "$command_response" ]; then
+      command_response=$(printf '%s' "$command_response" | sed '1s/^[[:space:]]*//')
+      printf '\n\n%s%s' "$response_label" "$command_response"
+    fi
+  else
+    printf '%s %s\n%s %s\n\n%s %s' \
+      "$sender_label" "$sender" \
+      "$date_label" "$timestamp" \
+      "$text_label" "$text"
+  fi
 }
 
 is_at_command() {
   local text="$1"
-  echo "$text" | grep -Eiq '^[[:space:]]*at'
+  echo "$text" | grep -Eiq '^[[:space:]]*at='
+}
+
+is_cli_command() {
+  local text="$1"
+  echo "$text" | grep -Eiq '^[[:space:]]*cli='
 }
 
 send_at_command() {
@@ -169,27 +194,72 @@ send_at_command() {
   local rc
   local reply
   local cmd
-  local header
 
-  if [ "${AT_COMMANDS_ENABLED:-0}" != "1" ]; then
+  if [ "${AT_COMMANDS_ENABLED:-false}" != "true" ]; then
     return 1
   fi
 
-  cmd=$(printf '%s' "$text" | sed 's/^[[:space:]]*//')
+  cmd=$(printf '%s' "$text" | sed 's/^[[:space:]]*[aA][tT]=[[:space:]]*//; s/[[:space:]]*$//')
+  if [ -z "$cmd" ]; then
+    log "Получена пустая AT-команда."
+    return 1
+  fi
+
   log "Получена AT-команда: $cmd"
   delete_sms
-  output=$(ndmc_cli interface "$iface" tty send "$cmd" 2>&1 | tr -d '\r' | sed 's/\[K//g')
-  header=$(set_header "$iface")
-
-  reply=$(printf "%s\n\nСообщение от: %s\nДата: %s\nAT-команда: %s\nИнтерфейс: %s\nОтвет модема:\n\n%s" "$header" "$sender" "$timestamp" "$cmd" "$iface" "$output")
-  send_notification "" "" "$reply" "$iface"
+  output=$(ndmc_cli interface "$iface" tty send "$cmd" 2>&1 | sanitize_command_output)
+  output=$(truncate_command_response "$output")
+  reply=$(printf "AT-команда: %s\nИнтерфейс: %s" "$cmd" "$iface")
+  send_notification "$sender" "$timestamp" "$reply" "$iface" "compact-command" "$output"
   rc=$?
   if [ $rc -ne 0 ]; then
     local at_json pending_text
-    pending_text=$(printf "AT-команда: %s\nИнтерфейс: %s\nОтвет модема:\n\n%s" "$cmd" "$iface" "$output")
+    pending_text=$(printf "AT-команда: %s\nИнтерфейс: %s" "$cmd" "$iface")
     at_json=$(jq -n --arg sender "$sender" --arg timestamp "$timestamp" --arg text "$pending_text" \
-      '{"sender": $sender, "timestamp": $timestamp, "text": $text}')
+      --arg layout "compact-command" --arg response "$output" \
+      '{"sender": $sender, "timestamp": $timestamp, "text": $text, "notification_layout": $layout, "notification_response": $response}')
     save_pending_message "$at_json"
+  fi
+  return 0
+}
+
+send_cli_command() {
+  local iface="$1"
+  local text="$2"
+  local output=""
+  local rc
+  local reply
+  local cmd
+
+  if [ "${CLI_COMMANDS_ENABLED:-0}" != "1" ] && [ "${CLI_COMMANDS_ENABLED:-0}" != "2" ]; then
+    return 1
+  fi
+
+  cmd=$(printf '%s' "$text" | sed 's/^[[:space:]]*[cC][lL][iI]=[[:space:]]*//; s/[[:space:]]*$//')
+  if [ -z "$cmd" ]; then
+    log "Получена пустая CLI-команда."
+    return 1
+  fi
+
+  log "Получена CLI-команда: $cmd"
+  delete_sms
+  output=$(ndmc_cli "$cmd" 2>&1 | sanitize_command_output)
+  if [ "${CLI_COMMANDS_ENABLED:-0}" = "2" ]; then
+    log "Сохраняю конфигурацию после выполнения CLI-команды."
+    ndmc_cli "system configuration save" >/dev/null 2>&1
+  fi
+  output=$(truncate_command_response "$output")
+
+  reply=$(printf "CLI-команда: %s" "$cmd")
+  send_notification "$sender" "$timestamp" "$reply" "$iface" "compact-command" "$output"
+  rc=$?
+  if [ $rc -ne 0 ]; then
+    local cli_json pending_text
+    pending_text=$(printf "CLI-команда: %s" "$cmd")
+    cli_json=$(jq -n --arg sender "$sender" --arg timestamp "$timestamp" --arg text "$pending_text" \
+      --arg layout "compact-command" --arg response "$output" \
+      '{"sender": $sender, "timestamp": $timestamp, "text": $text, "notification_layout": $layout, "notification_response": $response}')
+    save_pending_message "$cli_json"
   fi
   return 0
 }
@@ -469,6 +539,7 @@ process_incoming_message() {
   local text="$3"
   local sms_json="$4"
   local finalize_on_success="${5:-0}"
+  local process_commands="${6:-0}"
 
   if [ -z "$text" ]; then
     error "Получено пустое или несуществующее сообщение"
@@ -479,6 +550,16 @@ process_incoming_message() {
 
   check_black_list "$sender"
   check_white_list "$sender"
+
+  if [ "$process_commands" = "1" ]; then
+    if is_cli_command "$text" && send_cli_command "$INTERFACE_ID" "$text"; then
+      return
+    fi
+    if is_at_command "$text" && send_at_command "$INTERFACE_ID" "$text"; then
+      return
+    fi
+  fi
+
   check_text_black_list "$text"
   if ! check_text_white_list "$text"; then
     log "Текст сообщения не соответствует белому списку. Удаляю SMS и пропускаю отправку уведомления."
@@ -545,17 +626,90 @@ truncate_text_chars() {
   printf '%s' "$text" | jq -R -r -s --argjson n "$max_chars" 'explode | .[:$n] | implode'
 }
 
+sanitize_command_output() {
+  local esc
+  esc=$(printf '\033')
+  sed "s|${esc}\[[0-9;?]*[A-Za-z]||g" |
+    tr -d '\000-\010\013\014\016-\037\177'
+}
+
+truncate_command_response() {
+  local text="$1"
+  local text_length
+
+  text_length=$(text_len_chars "$text")
+  if [ "$text_length" -gt "$COMMAND_RESPONSE_LIMIT" ]; then
+    log "Ответ команды обрезан до $COMMAND_RESPONSE_LIMIT символов." >&2
+    truncate_text_chars "$text" "$COMMAND_RESPONSE_LIMIT"
+  else
+    printf '%s' "$text"
+  fi
+}
+
 has_active_notifier() {
   is_telegram_enabled || is_vk_enabled || is_sms_forward_enabled || is_ntfy_enabled
 }
 
 finalize_delivery() {
-  if [ "$MARK_READ_MESSAGE_AFTER_SEND" = "1" ] && [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
+  if [ "${MARK_READ_MESSAGE_AFTER_SEND:-false}" = "true" ] && [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
     mark_sms_read
   fi
-  if [ "$DELETE_MESSAGE_AFTER_SEND" = "1" ] && [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
+  if [ "${DELETE_MESSAGE_AFTER_SEND:-false}" = "true" ] && [ -n "$INTERFACE_ID" ] && [ -n "$MESSAGE_ID" ]; then
     delete_sms
   fi
+}
+
+version_to_number() {
+  local ver="$1"
+  local a b c d
+
+  set -- $(printf '%s' "$ver" | sed 's/[^0-9]/ /g')
+  a=${1:-0}; b=${2:-0}; c=${3:-0}; d=${4:-0}
+  printf '%d' "$(( (a * 16777216) + (b * 65536) + (c * 256) + d ))"
+}
+
+is_update_available() {
+  local local_num remote_num
+
+  if [ -z "$SCRIPT_VERSION" ] || [ -z "$REMOTE_VERSION" ]; then
+    return 1
+  fi
+
+  local_num=$(version_to_number "$SCRIPT_VERSION")
+  remote_num=$(version_to_number "$REMOTE_VERSION")
+  [ "$remote_num" -gt "$local_num" ]
+}
+
+get_release_keyboard() {
+  local update_button_text
+
+  if ! is_update_available; then
+    return 0
+  fi
+
+  if [ "${AUTO_UPDATE:-true}" = "true" ]; then
+    update_button_text="Что нового в версии $REMOTE_VERSION"
+  else
+    update_button_text="Доступно обновление $REMOTE_VERSION"
+  fi
+
+  jq -cn \
+    --arg update_button_text "$update_button_text" \
+    --arg url "$RELEASE_NOTES/$REMOTE_VERSION" \
+    --arg project_url "$PROJECT_URL" \
+    '{inline_keyboard: [
+      [{
+        text: "Поставить звезду",
+        icon_custom_emoji_id: "5258185631355378853",
+        url: $project_url
+      }],
+      [{
+        text: $update_button_text,
+        icon_custom_emoji_id: "5424818078833715060",
+        style: "primary",
+        url: $url
+      }]
+    ]}'
 }
 
 send_to_telegram() {
@@ -563,8 +717,10 @@ send_to_telegram() {
   local timestamp="$2"
   local text="$3"
   local iface="$4"
-  local escaped_sender escaped_timestamp escaped_text
-  local message
+  local layout="${5:-normal}"
+  local command_response="${6:-}"
+  local escaped_sender escaped_timestamp escaped_text escaped_response
+  local message reply_markup
   local retry_count=0
   local max_retries=3
   local retry_delay=5
@@ -572,7 +728,9 @@ send_to_telegram() {
   escaped_sender=$(escape_html "$sender")
   escaped_timestamp=$(escape_html "$timestamp")
   escaped_text=$(escape_html "$text")
-  message=$(build_notification_message "$escaped_sender" "$escaped_timestamp" "$escaped_text" "$iface" "telegram_html")
+  escaped_response=$(escape_html "$command_response")
+  message=$(build_notification_message "$escaped_sender" "$escaped_timestamp" "$escaped_text" "$iface" "telegram_html" "$layout" "$escaped_response")
+  reply_markup=$(get_release_keyboard)
 
   local chat_id="${CHAT_ID%%_*}"
   local topic_id="${CHAT_ID#*_}"
@@ -590,6 +748,11 @@ send_to_telegram() {
       '{chat_id: $chat_id, parse_mode: "HTML", text: $text}')
   fi
 
+  if [ -n "$reply_markup" ]; then
+    payload=$(printf '%s' "$payload" | jq --argjson reply_markup "$reply_markup" \
+      '. + {reply_markup: $reply_markup}')
+  fi
+
   while [ $retry_count -lt $max_retries ]; do
     local response
     local reason=""
@@ -600,7 +763,7 @@ send_to_telegram() {
     if [ -z "$response" ]; then
       reason="Пустой ответ сервера, проверьте подключение к интернету, или задайте PROXY_INTERFACE/PROXY_URL"
     elif echo "$response" | grep -q '"ok":true'; then
-      log "Сообщение отправлено в Telegram."
+      log "Сообщение от $sender отправлено в Telegram."
       return 0
     else
       reason="$response"
@@ -619,6 +782,8 @@ send_to_vk() {
   local timestamp="$2"
   local text="$3"
   local iface="$4"
+  local layout="${5:-normal}"
+  local command_response="${6:-}"
   local peer_id
   local retry_count=0
   local max_retries=3
@@ -631,7 +796,7 @@ send_to_vk() {
     return 2
   fi
 
-  message=$(build_notification_message "$sender" "$timestamp" "$text" "$iface")
+  message=$(build_notification_message "$sender" "$timestamp" "$text" "$iface" "plain" "$layout" "$command_response")
 
   while [ $retry_count -lt $max_retries ]; do
     local response
@@ -647,7 +812,7 @@ send_to_vk() {
     if [ -z "$response" ]; then
       reason="Пустой ответ сервера, проверьте подключение к интернету."
     elif echo "$response" | jq -e '.response' >/dev/null 2>&1; then
-      log "Сообщение отправлено VK."
+      log "Сообщение от $sender отправлено VK."
       return 0
     else
       reason="$response"
@@ -666,6 +831,8 @@ send_to_ntfy() {
   local timestamp="$2"
   local text="$3"
   local iface="$4"
+  local layout="${5:-normal}"
+  local command_response="${6:-}"
   local retry_count=0
   local max_retries=3
   local retry_delay=5
@@ -675,7 +842,7 @@ send_to_ntfy() {
     return 2
   fi
 
-  message=$(build_notification_message "$sender" "$timestamp" "$text" "$iface")
+  message=$(build_notification_message "$sender" "$timestamp" "$text" "$iface" "plain" "$layout" "$command_response")
 
   while [ $retry_count -lt $max_retries ]; do
     local reason=""
@@ -684,7 +851,7 @@ send_to_ntfy() {
     if [ -z "$response" ]; then
       reason="Пустой ответ сервера, проверьте подключение к интернету."
     elif echo "$response" | jq -e '.id and .topic' >/dev/null 2>&1; then
-      log "Сообщение отправлено в ntfy."
+      log "Сообщение от $sender отправлено в ntfy."
       return 0
     else
       reason="$response"
@@ -703,6 +870,8 @@ send_to_sms_forward() {
   local timestamp="$2"
   local text="$3"
   local iface="$4"
+  local layout="${5:-normal}"
+  local command_response="${6:-}"
   local to
   local sms_iface
   local base_message
@@ -731,7 +900,7 @@ send_to_sms_forward() {
     return 2
   fi
 
-  base_message=$(build_notification_message "$sender" "$timestamp" "$text" "$sms_iface")
+  base_message=$(build_notification_message "$sender" "$timestamp" "$text" "$sms_iface" "plain" "$layout" "$command_response")
   message="$base_message"
   message_len=$(text_len_chars "$base_message")
   if [ "$message_len" -gt "$SMS_FORWARD_LIMIT" ]; then
@@ -755,7 +924,11 @@ Alphabet: UTF
 $message
 EOF
     then
-      log "smstools3: Сообщение добавлено в очередь: $queue_file"
+      if [ -n "$sender" ]; then
+        log "smstools3: Сообщение от $sender добавлено в очередь: $queue_file"
+      else
+        log "smstools3: Сообщение добавлено в очередь: $queue_file"
+      fi
       return 0
     fi
 
@@ -774,8 +947,8 @@ EOF
       reason="Пустой ответ RCI"
     elif echo "$response" | grep -qi 'error'; then
       reason="$response"
-    else
-      log "Сообщение переслано на $to через $sms_iface."
+      else
+        log "Сообщение от $sender переслано на $to через $sms_iface."
       return 0
     fi
 
@@ -792,10 +965,12 @@ send_to_channel() {
   local timestamp="$4"
   local text="$5"
   local iface="$6"
+  local layout="${7:-normal}"
+  local command_response="${8:-}"
 
   if "$enabled_fn"; then
     attempted=$((attempted + 1))
-    if "$sender_fn" "$sender" "$timestamp" "$text" "$iface"; then
+    if "$sender_fn" "$sender" "$timestamp" "$text" "$iface" "$layout" "$command_response"; then
       success=0
     fi
   fi
@@ -806,13 +981,15 @@ send_notification() {
   local timestamp="$2"
   local text="$3"
   local iface="$4"
+  local layout="${5:-normal}"
+  local command_response="${6:-}"
   local attempted=0
   local success=1
 
-  send_to_channel is_telegram_enabled send_to_telegram "$sender" "$timestamp" "$text" "$iface"
-  send_to_channel is_vk_enabled send_to_vk "$sender" "$timestamp" "$text" "$iface"
-  send_to_channel is_sms_forward_enabled send_to_sms_forward "$sender" "$timestamp" "$text" "$iface"
-  send_to_channel is_ntfy_enabled send_to_ntfy "$sender" "$timestamp" "$text" "$iface"
+  send_to_channel is_telegram_enabled send_to_telegram "$sender" "$timestamp" "$text" "$iface" "$layout" "$command_response"
+  send_to_channel is_vk_enabled send_to_vk "$sender" "$timestamp" "$text" "$iface" "$layout" "$command_response"
+  send_to_channel is_sms_forward_enabled send_to_sms_forward "$sender" "$timestamp" "$text" "$iface" "$layout" "$command_response"
+  send_to_channel is_ntfy_enabled send_to_ntfy "$sender" "$timestamp" "$text" "$iface" "$layout" "$command_response"
 
   if [ $attempted -eq 0 ]; then
     error "Не настроены каналы уведомлений."
@@ -892,11 +1069,15 @@ send_pending_messages() {
   echo "$pending" | jq -c '.[]' | {
     local seen_keys=""
     while read -r message; do
-      local sender text timestamp_raw timestamp iface queue_len remaining msg_id key
+      local sender text timestamp_raw timestamp iface layout command_response queue_len remaining msg_id key
       sender=$(echo "$message" | jq -r '.sender')
       text=$(echo "$message" | jq -r '.text')
       timestamp_raw=$(echo "$message" | jq -r '.timestamp')
       iface=$(echo "$message" | jq -r '.interface')
+      layout=$(echo "$message" | jq -r '.notification_layout // "normal"')
+      command_response=$(echo "$message" | jq -r '.notification_response // empty')
+      command_response=$(printf '%s' "$command_response" | sanitize_command_output)
+      command_response=$(truncate_command_response "$command_response")
       msg_id=$(echo "$message" | jq -r '.message_id // empty')
 
       if [ -n "$msg_id" ] && [ -n "$iface" ]; then
@@ -912,7 +1093,7 @@ send_pending_messages() {
       remaining=$((queue_len - 1))
 
       log "Отправка сохранённого сообщения от $sender ($timestamp) (в очереди $remaining)..."
-      if send_notification "$sender" "$timestamp" "$text" "$iface"; then
+      if send_notification "$sender" "$timestamp" "$text" "$iface" "$layout" "$command_response"; then
         if [ -n "$msg_id" ]; then
           pending=$(echo "$pending" | jq --arg id "$msg_id" --arg iface "$iface" \
             'del(.[] | select(.message_id == $id and .interface == $iface))')
@@ -998,42 +1179,22 @@ main() {
 
   timestamp=$(format_timestamp "$timestamp")
 
-  if is_at_command "$text"; then
-    if send_at_command "$INTERFACE_ID" "$text"; then
-      if [ "${DEBUG:-0}" = "1" ]; then
-        exec 19>&-
-      fi
-      return
-    fi
-  fi
-
   sms_json=$(echo "$sms_json" | jq --arg id "$MESSAGE_ID" '. + {message_id: $id}')
-  process_incoming_message "$sender" "$timestamp" "$text" "$sms_json" "1"
+  process_incoming_message "$sender" "$timestamp" "$text" "$sms_json" "1" "1"
 
-  if [ "${DEBUG:-0}" = "1" ]; then
+  if [ "${DEBUG:-false}" = "true" ]; then
     exec 19>&-
   fi
 }
 
 check_update() {
-  local local_num remote_num
-  local l1 l2 l3 l4 r1 r2 r3 r4
-
-  if [ -z "$SCRIPT_VERSION" ] || [ -z "$REMOTE_VERSION" ]; then
-    return
+  if [ "${AUTO_UPDATE:-true}" != "true" ]; then
+    return 0
   fi
 
-  set -- $(printf '%s' "$SCRIPT_VERSION" | sed 's/[^0-9]/ /g')
-  l1=${1:-0}; l2=${2:-0}; l3=${3:-0}; l4=${4:-0}
-  local_num=$(( (l1 << 24) + (l2 << 16) + (l3 << 8) + l4 ))
-
-  set -- $(printf '%s' "$REMOTE_VERSION" | sed 's/[^0-9]/ /g')
-  r1=${1:-0}; r2=${2:-0}; r3=${3:-0}; r4=${4:-0}
-  remote_num=$(( (r1 << 24) + (r2 << 16) + (r3 << 8) + r4 ))
-
-  if [ "$remote_num" -gt "$local_num" ]; then
+  if is_update_available; then
     log "Доступна новая версия: $REMOTE_VERSION. Обновляюсь..."
-    exec "$SMS2GRAM_DIR/$SCRIPT" "script_update"
+    exec "$SMS2GRAM_DIR/$SCRIPT" "script_update" "silent"
   fi
 }
 
